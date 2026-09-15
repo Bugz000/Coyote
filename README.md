@@ -176,24 +176,12 @@ Coyote automatically binds real-time contextual variables:
 
 Ensure you have [Node.js](https://nodejs.org/) installed, then import Coyote into your project:
 
-```javascript
-const { CoyoteParser, ASTExecutor } = require('./coyote.js');
+```bash
+# Install dependencies
+npm install
 
-const script = `
-    greeting := "Hello from Coyote Engine!"
-    print(Upper(greeting))
-    print("Calculated PC Change: " . pcChange(50, 100) . "%")
-`;
-
-async function run() {
-    const parser = new CoyoteParser(script);
-    const ast = parser.parse();
-    
-    const executor = new ASTExecutor();
-    await executor.run(ast);
-}
-
-run().catch(console.error);
+# Execute a CoyoteScript (.yote) file
+node script.js script.yote
 ```
 
 ---
@@ -205,7 +193,7 @@ run().catch(console.error);
 - [x] Terminal rendering engine (`Cell`, `Cursor`, system metrics)
 - [ ] Relative layout positioning system (`tui.add.button.x := "x+5"`)
 - [ ] Extended directory watcher & async file system event hooks
-- [ ] Standalone CLI runner (`coyote script.cy`)
+- [ ] Standalone CLI runner (`coyote script.yote`)
 
 ---
 
