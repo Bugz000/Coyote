@@ -191,9 +191,10 @@ node script.js script.yote
 - [x] High-inference expression engine with operator precedence AST parser
 - [x] Dual-scope environment supporting pure Coyote script & JS method binding (`CoyoteVar`)
 - [x] Terminal rendering engine (`Cell`, `Cursor`, system metrics)
+- [ ] DOCUMENTATION.
 - [ ] Relative layout positioning system (`tui.add.button.x := "x+5"`)
 - [ ] Extended directory watcher & async file system event hooks
-- [ ] Standalone CLI runner (`coyote script.yote`)
+- [ ] Standalone CLI runner (`coyote script.yote`)  (you can pack the js to an executable with ease, however)
 
 ---
 
