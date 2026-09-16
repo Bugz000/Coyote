@@ -28,8 +28,6 @@
 
 ## ✨ Key Features
 
-## ✨ Key Features
-
 * **🧠 Contextual Type Inference:** Mix strings, floats, ints, arrays, and JSON without tedious explicit casts. Coyote automatically digest-coerces types based on operation context.
 ```coyote
 ; Coyote pairs types by what the operator is trying to do, not by declared type
