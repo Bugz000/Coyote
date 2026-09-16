@@ -51,8 +51,9 @@ const readlineSync = require('readline-sync');
 const { performance } = require('perf_hooks');
 
 class StringToken {
-	constructor(token) {
+	constructor(token, description = null) {
 		this.token = token
+		this.description = description
 	}
 	scan(haystack, position) {
 		return haystack.startsWith(this.token, position) ? this.token : null
@@ -62,8 +63,9 @@ class StringToken {
 	}
 }
 class RegexToken {
-	constructor(token) {
+	constructor(token, description = null) {
 		this.token = token;
+		this.description = description;
 		if (token.global) {
 			throw new Error('Global regex not supported: /' + token.source + '/' + token.flags);
 		}
@@ -82,47 +84,47 @@ class RegexToken {
 }
 const debuglogtier = -1
 const VARIABLE = new RegexToken(/[a-zA-Z_][a-zA-Z0-9_]*/);
-const OPERATOR_TERNARY_IF = new StringToken('?');
-const OPERATOR_TERNARY_ELSE = new StringToken(':');
-const OPERATOR_OR = new StringToken('||');
-const OPERATOR_AND = new StringToken('&&');
-const OPERATOR_EQUAL = new RegexToken(/=|==/);
-const OPERATOR_NOT_EQUAL = new RegexToken(/!=|!==/);
-const OPERATOR_LESS = new StringToken('<');
-const OPERATOR_LESS_EQUAL = new StringToken('<=');
-const OPERATOR_GREATER = new StringToken('>');
-const OPERATOR_GREATER_EQUAL = new StringToken('>=');
-const OPERATOR_CONCAT = new RegexToken(/\.|[ \t]+/); // Joins two values into a string, via `.` or plain whitespace
-const OPERATOR_BITWISE_AND = new StringToken('&');
-const OPERATOR_BITWISE_OR = new StringToken('|');
-const OPERATOR_BITWISE_XOR = new StringToken('^');
-const OPERATOR_BIT_SHIFT_RIGHT = new StringToken('>>');
-const OPERATOR_BIT_SHIFT_LEFT = new StringToken('<<');
-const OPERATOR_ADD = new StringToken('+');
-const OPERATOR_SUB = new StringToken('-');
-const OPERATOR_MUL = new StringToken('*');
-const OPERATOR_DIV = new StringToken('/');
-const OPERATOR_ASSIGN = new StringToken(':='); // Assigns a value to a variable
-const OPERATOR_LPAREN = new StringToken('(');
-const OPERATOR_RPAREN = new StringToken(')');
-const OPERATOR_LBRACE = new StringToken('{');
-const OPERATOR_RBRACE = new StringToken('}');
-const OPERATOR_LBRACKET = new StringToken('[');
-const OPERATOR_RBRACKET = new StringToken(']');
-const OPERATOR_COMMA = new StringToken(',');
-const OPERATOR_COLON = new StringToken(':');
-const OPERATOR_DOT = new StringToken('.');
-const LITERAL_NUMBER = new RegexToken(/-?[0-9]+(\.[0-9]+)?/);
-const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i);
-const LITERAL_STRING = new RegexToken(/"[^"]*"/);
-const KEYWORD_IF = new RegexToken(/if\b/i);
-const KEYWORD_ELSE = new RegexToken(/else\b/i);
-const KEYWORD_LOOP = new RegexToken(/loop\b/i);
-const KEYWORD_in = new RegexToken(/in\b/i);
-const KEYWORD_FOR = new RegexToken(/for\b/i);
-const KEYWORD_BREAK = new RegexToken(/break\b/i);
-const KEYWORD_CONTINUE = new RegexToken(/continue\b/i);
-const KEYWORD_RETURN = new RegexToken(/return\b/i);
+const OPERATOR_TERNARY_IF = new StringToken('?', 'Begins the true-branch of a ternary expression');
+const OPERATOR_TERNARY_ELSE = new StringToken(':', 'Separates the true and false branches of a ternary expression');
+const OPERATOR_OR = new StringToken('||', 'Logical OR');
+const OPERATOR_AND = new StringToken('&&', 'Logical AND');
+const OPERATOR_EQUAL = new RegexToken(/=|==/, 'Equality comparison');
+const OPERATOR_NOT_EQUAL = new RegexToken(/!=|!==/, 'Inequality comparison');
+const OPERATOR_LESS = new StringToken('<', 'Less-than comparison');
+const OPERATOR_LESS_EQUAL = new StringToken('<=', 'Less-than-or-equal comparison');
+const OPERATOR_GREATER = new StringToken('>', 'Greater-than comparison');
+const OPERATOR_GREATER_EQUAL = new StringToken('>=', 'Greater-than-or-equal comparison');
+const OPERATOR_CONCAT = new RegexToken(/\.|[ \t]+/, 'Joins two values into a string, via `.` or plain whitespace');
+const OPERATOR_BITWISE_AND = new StringToken('&', 'Bitwise AND');
+const OPERATOR_BITWISE_OR = new StringToken('|', 'Bitwise OR');
+const OPERATOR_BITWISE_XOR = new StringToken('^', 'Bitwise XOR');
+const OPERATOR_BIT_SHIFT_RIGHT = new StringToken('>>', 'Bitwise right shift');
+const OPERATOR_BIT_SHIFT_LEFT = new StringToken('<<', 'Bitwise left shift');
+const OPERATOR_ADD = new StringToken('+', 'Addition (also doubled as `++` for increment)');
+const OPERATOR_SUB = new StringToken('-', 'Subtraction (also doubled as `--` for decrement)');
+const OPERATOR_MUL = new StringToken('*', 'Multiplication');
+const OPERATOR_DIV = new StringToken('/', 'Division');
+const OPERATOR_ASSIGN = new StringToken(':=', 'Assigns a value to a variable');
+const OPERATOR_LPAREN = new StringToken('(', 'Opens a function-call argument list or grouped expression');
+const OPERATOR_RPAREN = new StringToken(')', 'Closes a function-call argument list or grouped expression');
+const OPERATOR_LBRACE = new StringToken('{', 'Opens a block or object literal');
+const OPERATOR_RBRACE = new StringToken('}', 'Closes a block or object literal');
+const OPERATOR_LBRACKET = new StringToken('[', 'Opens an array literal or index accessor');
+const OPERATOR_RBRACKET = new StringToken(']', 'Closes an array literal or index accessor');
+const OPERATOR_COMMA = new StringToken(',', 'Separates function arguments or list/object items');
+const OPERATOR_COLON = new StringToken(':', 'Separates a key from its value in an object literal');
+const OPERATOR_DOT = new StringToken('.', 'Member access (`x.foo`), also doubled as `..` for string append');
+const LITERAL_NUMBER = new RegexToken(/-?[0-9]+(\.[0-9]+)?/, 'Numeric literal, e.g. `42` or `3.14`');
+const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i, 'Boolean literal, `true` or `false` (case-insensitive)');
+const LITERAL_STRING = new RegexToken(/"[^"]*"/, 'Double-quoted string literal');
+const KEYWORD_IF = new RegexToken(/if\b/i, 'Begins a conditional statement');
+const KEYWORD_ELSE = new RegexToken(/else\b/i, 'Begins the alternate branch of a conditional statement');
+const KEYWORD_LOOP = new RegexToken(/loop\b/i, 'Begins a loop statement');
+const KEYWORD_in = new RegexToken(/in\b/i, 'Introduces the collection in a for-in loop');
+const KEYWORD_FOR = new RegexToken(/for\b/i, 'Begins a for-in loop');
+const KEYWORD_BREAK = new RegexToken(/break\b/i, 'Exits the innermost loop immediately');
+const KEYWORD_CONTINUE = new RegexToken(/continue\b/i, 'Skips to the next iteration of the innermost loop');
+const KEYWORD_RETURN = new RegexToken(/return\b/i, 'Returns a value from a function');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
 const NEWLINE = new RegexToken(/\r?\n/);

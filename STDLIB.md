@@ -6,63 +6,63 @@
 
 ## Syntax & Operators
 
-Auto-extracted from the token declarations (`const OPERATOR_*`, `KEYWORD_*`, `LITERAL_*`) at the top of coyote.js. Add a trailing `// comment` on a declaration to override the auto-generated description.
+Auto-extracted from the token declarations (`const OPERATOR_*`, `KEYWORD_*`, `LITERAL_*`) at the top of coyote.js. Descriptions come from each token's own `description` property (its second constructor argument), so they're real runtime data, not comments living outside the code.
 
 ### Operators
 
 | Symbol | Name | Description |
 |---|---|---|
-| `?` | Ternary If | _(undocumented — add a trailing comment on the declaration)_ |
-| `:` | Ternary Else | _(undocumented — add a trailing comment on the declaration)_ |
-| `||` | Or | _(undocumented — add a trailing comment on the declaration)_ |
-| `&&` | And | _(undocumented — add a trailing comment on the declaration)_ |
-| `/=|==/` | Equal | _(undocumented — add a trailing comment on the declaration)_ |
-| `/!=|!==/` | Not Equal | _(undocumented — add a trailing comment on the declaration)_ |
-| `<` | Less | _(undocumented — add a trailing comment on the declaration)_ |
-| `<=` | Less Equal | _(undocumented — add a trailing comment on the declaration)_ |
-| `>` | Greater | _(undocumented — add a trailing comment on the declaration)_ |
-| `>=` | Greater Equal | _(undocumented — add a trailing comment on the declaration)_ |
+| `?` | Ternary If | Begins the true-branch of a ternary expression |
+| `:` | Ternary Else | Separates the true and false branches of a ternary expression |
+| `||` | Or | Logical OR |
+| `&&` | And | Logical AND |
+| `/=|==/` | Equal | Equality comparison |
+| `/!=|!==/` | Not Equal | Inequality comparison |
+| `<` | Less | Less-than comparison |
+| `<=` | Less Equal | Less-than-or-equal comparison |
+| `>` | Greater | Greater-than comparison |
+| `>=` | Greater Equal | Greater-than-or-equal comparison |
 | `/\.|[ \t]+/` | Concat | Joins two values into a string, via `.` or plain whitespace |
-| `&` | Bitwise And | _(undocumented — add a trailing comment on the declaration)_ |
-| `|` | Bitwise Or | _(undocumented — add a trailing comment on the declaration)_ |
-| `^` | Bitwise Xor | _(undocumented — add a trailing comment on the declaration)_ |
-| `>>` | Bit Shift Right | _(undocumented — add a trailing comment on the declaration)_ |
-| `<<` | Bit Shift Left | _(undocumented — add a trailing comment on the declaration)_ |
-| `+` | Add | _(undocumented — add a trailing comment on the declaration)_ |
-| `-` | Sub | _(undocumented — add a trailing comment on the declaration)_ |
-| `*` | Mul | _(undocumented — add a trailing comment on the declaration)_ |
-| `/` | Div | _(undocumented — add a trailing comment on the declaration)_ |
+| `&` | Bitwise And | Bitwise AND |
+| `|` | Bitwise Or | Bitwise OR |
+| `^` | Bitwise Xor | Bitwise XOR |
+| `>>` | Bit Shift Right | Bitwise right shift |
+| `<<` | Bit Shift Left | Bitwise left shift |
+| `+` | Add | Addition (also doubled as `++` for increment) |
+| `-` | Sub | Subtraction (also doubled as `--` for decrement) |
+| `*` | Mul | Multiplication |
+| `/` | Div | Division |
 | `:=` | Assign | Assigns a value to a variable |
-| `(` | Lparen | _(undocumented — add a trailing comment on the declaration)_ |
-| `)` | Rparen | _(undocumented — add a trailing comment on the declaration)_ |
-| `{` | Lbrace | _(undocumented — add a trailing comment on the declaration)_ |
-| `}` | Rbrace | _(undocumented — add a trailing comment on the declaration)_ |
-| `[` | Lbracket | _(undocumented — add a trailing comment on the declaration)_ |
-| `]` | Rbracket | _(undocumented — add a trailing comment on the declaration)_ |
-| `,` | Comma | _(undocumented — add a trailing comment on the declaration)_ |
-| `:` | Colon | _(undocumented — add a trailing comment on the declaration)_ |
-| `.` | Dot | _(undocumented — add a trailing comment on the declaration)_ |
+| `(` | Lparen | Opens a function-call argument list or grouped expression |
+| `)` | Rparen | Closes a function-call argument list or grouped expression |
+| `{` | Lbrace | Opens a block or object literal |
+| `}` | Rbrace | Closes a block or object literal |
+| `[` | Lbracket | Opens an array literal or index accessor |
+| `]` | Rbracket | Closes an array literal or index accessor |
+| `,` | Comma | Separates function arguments or list/object items |
+| `:` | Colon | Separates a key from its value in an object literal |
+| `.` | Dot | Member access (`x.foo`), also doubled as `..` for string append |
 
 ### Keywords
 
 | Symbol | Name | Description |
 |---|---|---|
-| `/if\b/i` | If | _(undocumented — add a trailing comment on the declaration)_ |
-| `/else\b/i` | Else | _(undocumented — add a trailing comment on the declaration)_ |
-| `/loop\b/i` | Loop | _(undocumented — add a trailing comment on the declaration)_ |
-| `/in\b/i` | In | _(undocumented — add a trailing comment on the declaration)_ |
-| `/for\b/i` | For | _(undocumented — add a trailing comment on the declaration)_ |
-| `/break\b/i` | Break | _(undocumented — add a trailing comment on the declaration)_ |
-| `/continue\b/i` | Continue | _(undocumented — add a trailing comment on the declaration)_ |
-| `/return\b/i` | Return | _(undocumented — add a trailing comment on the declaration)_ |
+| `/if\b/i` | If | Begins a conditional statement |
+| `/else\b/i` | Else | Begins the alternate branch of a conditional statement |
+| `/loop\b/i` | Loop | Begins a loop statement |
+| `/in\b/i` | In | Introduces the collection in a for-in loop |
+| `/for\b/i` | For | Begins a for-in loop |
+| `/break\b/i` | Break | Exits the innermost loop immediately |
+| `/continue\b/i` | Continue | Skips to the next iteration of the innermost loop |
+| `/return\b/i` | Return | Returns a value from a function |
 
 ### Literals
 
 | Symbol | Name | Description |
 |---|---|---|
-| `/-?[0-9]+(\.[0-9]+)?/` | Number | _(undocumented — add a trailing comment on the declaration)_ |
-| `/(true|false)\b/i` | Boolean | _(undocumented — add a trailing comment on the declaration)_ |
-| `/"[^"]*"/` | String | _(undocumented — add a trailing comment on the declaration)_ |
+| `/-?[0-9]+(\.[0-9]+)?/` | Number | Numeric literal, e.g. `42` or `3.14` |
+| `/(true|false)\b/i` | Boolean | Boolean literal, `true` or `false` (case-insensitive) |
+| `/"[^"]*"/` | String | Double-quoted string literal |
 
 ### Special
 
@@ -79,12 +79,12 @@ Auto-extracted from the token declarations (`const OPERATOR_*`, `KEYWORD_*`, `LI
 ### print
 
 ```
-print(arg1)
+print([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `(none)` — No return value.
 
@@ -93,14 +93,14 @@ print(arg1)
 ### Cell
 
 ```
-Cell(char, x, y)
+Cell([char] [,x] [,y])
 ```
 
 | Parameter | Optional | Description |
 |---|---|---|
-| char | no | The character to set |
-| x | no | X position |
-| y | no | Y position |
+| char | yes | The character to set |
+| x | yes | X position |
+| y | yes | Y position |
 
 **Returns:** `(none)` — No return value.
 
@@ -109,13 +109,13 @@ Cell(char, x, y)
 ### Cursor
 
 ```
-Cursor(x, y)
+Cursor([x] [,y])
 ```
 
 | Parameter | Optional | Description |
 |---|---|---|
-| x | no | X position |
-| y | no | Y position |
+| x | yes | X position |
+| y | yes | Y position |
 
 **Returns:** `(none)` — No return value.
 
@@ -136,13 +136,13 @@ _Takes no parameters._
 ### round
 
 ```
-round(arg1, arg2)
+round([arg1] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| arg2 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Rounds a number.
 
@@ -151,12 +151,12 @@ round(arg1, arg2)
 ### strlen
 
 ```
-strlen(arg1)
+strlen([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `(none)` — No return value.
 
@@ -165,12 +165,12 @@ strlen(arg1)
 ### abs
 
 ```
-abs(arg1)
+abs([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Absolute value.
 
@@ -179,12 +179,12 @@ abs(arg1)
 ### Exp
 
 ```
-Exp(arg1)
+Exp([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -193,12 +193,12 @@ Exp(arg1)
 ### Log
 
 ```
-Log(arg1)
+Log([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -207,12 +207,12 @@ Log(arg1)
 ### Floor
 
 ```
-Floor(arg1)
+Floor([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Rounds down.
 
@@ -221,13 +221,13 @@ Floor(arg1)
 ### Sin
 
 ```
-Sin(arg1, degrees)
+Sin([arg1] [,degrees])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| degrees | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| degrees | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Trigonometric function.
 
@@ -236,12 +236,12 @@ Sin(arg1, degrees)
 ### Cos
 
 ```
-Cos(arg1)
+Cos([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Trigonometric function.
 
@@ -262,13 +262,13 @@ _Takes no parameters._
 ### Tan
 
 ```
-Tan(arg1, degrees)
+Tan([Convert] [,degrees])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| degrees | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| Convert | yes | Optional; omitted value reads as `undefined`. |
+| degrees | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Trigonometric function.
 
@@ -277,12 +277,12 @@ Tan(arg1, degrees)
 ### Ceil
 
 ```
-Ceil(arg1)
+Ceil([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Rounds up.
 
@@ -291,12 +291,12 @@ Ceil(arg1)
 ### Cotan
 
 ```
-Cotan(radians)
+Cotan([radians])
 ```
 
-| Parameter | Optional |
-|---|---|
-| radians | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| radians | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -338,12 +338,12 @@ _Takes no parameters._
 ### Dice
 
 ```
-Dice(N)
+Dice([N])
 ```
 
-| Parameter | Optional |
-|---|---|
-| N | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| N | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Rounds down.
 
@@ -352,14 +352,14 @@ Dice(N)
 ### Substr
 
 ```
-Substr(string, start, [arg3])
+Substr([string] [,start] [,arg3])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| start | no |
-| arg3 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Defaults to 0 if omitted. |
+| start | yes | Defaults to 0 if omitted. |
+| arg3 | yes |  |
 
 **Returns:** `string|array` — Returns a sub-range.
 
@@ -368,12 +368,12 @@ Substr(string, start, [arg3])
 ### Asc
 
 ```
-Asc(arg1)
+Asc([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Returns a character code.
 
@@ -385,12 +385,12 @@ Asc(arg1)
 ### Chr
 
 ```
-Chr(arg1)
+Chr([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Builds a string from character codes.
 
@@ -399,13 +399,13 @@ Chr(arg1)
 ### InStr
 
 ```
-InStr(string1, string2)
+InStr([string1] [,string2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string1 | no |
-| string2 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string1 | yes | Optional; omitted value reads as `undefined`. |
+| string2 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Returns a position/index.
 
@@ -414,14 +414,14 @@ InStr(string1, string2)
 ### Strepl
 
 ```
-Strepl(string, find, replace)
+Strepl([string] [,find] [,replace])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| find | no |
-| replace | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| find | yes | Optional; omitted value reads as `undefined`. |
+| replace | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Returns a modified copy with a replacement applied.
 
@@ -430,12 +430,12 @@ Strepl(string, find, replace)
 ### Upper
 
 ```
-Upper(string)
+Upper([string])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Converts to uppercase.
 
@@ -444,12 +444,12 @@ Upper(string)
 ### Lower
 
 ```
-Lower(string)
+Lower([string])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Converts to lowercase.
 
@@ -458,13 +458,13 @@ Lower(string)
 ### power
 
 ```
-power(base, exponent)
+power([base] [,exponent])
 ```
 
-| Parameter | Optional |
-|---|---|
-| base | no |
-| exponent | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| base | yes | Optional; omitted value reads as `undefined`. |
+| exponent | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Raises to a power.
 
@@ -473,12 +473,12 @@ power(base, exponent)
 ### sqrt
 
 ```
-sqrt(number)
+sqrt([number])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Square root.
 
@@ -487,14 +487,14 @@ sqrt(number)
 ### Rem
 
 ```
-Rem(string, regexPattern, [numMatches])
+Rem([string] [,regexPattern] [,numMatches])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| regexPattern | no |
-| numMatches | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| regexPattern | yes | Optional; omitted value reads as `undefined`. |
+| numMatches | yes |  |
 
 **Returns:** `unknown`
 
@@ -506,14 +506,14 @@ Rem(string, regexPattern, [numMatches])
 ### Repl
 
 ```
-Repl(string, regex, replace)
+Repl([string] [,regex] [,replace])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| regex | no |
-| replace | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| regex | yes | Optional; omitted value reads as `undefined`. |
+| replace | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Returns a modified copy with a replacement applied.
 
@@ -522,13 +522,13 @@ Repl(string, regex, replace)
 ### Grep
 
 ```
-Grep(arg1, text)
+Grep([arg1] [,text])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| text | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| text | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -537,13 +537,13 @@ Grep(arg1, text)
 ### Trunc
 
 ```
-Trunc(number, decimalPlaces)
+Trunc([number] [,decimalPlaces])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
-| decimalPlaces | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
+| decimalPlaces | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -555,13 +555,13 @@ Trunc(number, decimalPlaces)
 ### Strsplit
 
 ```
-Strsplit(string, separator)
+Strsplit([string] [,separator])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| separator | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| separator | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Splits into an array.
 
@@ -570,12 +570,12 @@ Strsplit(string, separator)
 ### fRead
 
 ```
-fRead(content)
+fRead([content])
 ```
 
-| Parameter | Optional |
-|---|---|
-| content | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| content | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -584,12 +584,12 @@ fRead(content)
 ### strmid
 
 ```
-strmid(length)
+strmid([length])
 ```
 
-| Parameter | Optional |
-|---|---|
-| length | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| length | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number` — Rounds down.
 
@@ -622,14 +622,14 @@ _Takes no parameters._
 ### justify
 
 ```
-justify(text, justifyType, width)
+justify([text] [,justifyType] [,width])
 ```
 
 | Parameter | Optional | Description |
 |---|---|---|
-| text | no |  |
-| justifyType | no | 1 for Left, 2 for Center, 3 for Right |
-| width | no |  |
+| text | yes | Optional; omitted value reads as `undefined`. |
+| justifyType | yes | 1 for Left, 2 for Center, 3 for Right |
+| width | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -650,13 +650,13 @@ _Takes no parameters._
 ### strclean
 
 ```
-strclean(string, N)
+strclean([string] [,N])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| N | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| N | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Trims whitespace.
 
@@ -668,12 +668,12 @@ strclean(string, N)
 ### fdelete
 
 ```
-fdelete(filePath)
+fdelete([filePath])
 ```
 
-| Parameter | Optional |
-|---|---|
-| filePath | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| filePath | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -682,13 +682,13 @@ fdelete(filePath)
 ### fwrite
 
 ```
-fwrite(data, filePath)
+fwrite([data] [,filePath])
 ```
 
-| Parameter | Optional |
-|---|---|
-| data | no |
-| filePath | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| data | yes | Optional; omitted value reads as `undefined`. |
+| filePath | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -697,13 +697,13 @@ fwrite(data, filePath)
 ### repeat
 
 ```
-repeat(repeat, num)
+repeat([repeat] [,num])
 ```
 
-| Parameter | Optional |
-|---|---|
-| repeat | no |
-| num | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| repeat | yes | Optional; omitted value reads as `undefined`. |
+| num | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `(none)` — No return value.
 
@@ -712,13 +712,13 @@ repeat(repeat, num)
 ### fappend
 
 ```
-fappend(data, filePath)
+fappend([data] [,filePath])
 ```
 
-| Parameter | Optional |
-|---|---|
-| data | no |
-| filePath | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| data | yes | Optional; omitted value reads as `undefined`. |
+| filePath | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -727,12 +727,12 @@ fappend(data, filePath)
 ### treeprint
 
 ```
-treeprint(arg1)
+treeprint([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Splits into an array.
 
@@ -753,13 +753,13 @@ treeprint(arg1)
 ### pcof
 
 ```
-pcof(part, whole)
+pcof([part] [,whole])
 ```
 
-| Parameter | Optional |
-|---|---|
-| part | no |
-| whole | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| part | yes | Optional; omitted value reads as `undefined`. |
+| whole | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -768,13 +768,13 @@ pcof(part, whole)
 ### pct
 
 ```
-pct(number, percent)
+pct([number] [,percent])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
-| percent | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
+| percent | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -783,13 +783,13 @@ pct(number, percent)
 ### pcChange
 
 ```
-pcChange(oldValue, newValue)
+pcChange([oldValue] [,newValue])
 ```
 
-| Parameter | Optional |
-|---|---|
-| oldValue | no |
-| newValue | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| oldValue | yes | Optional; omitted value reads as `undefined`. |
+| newValue | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -798,13 +798,13 @@ pcChange(oldValue, newValue)
 ### addPc
 
 ```
-addPc(number, percent)
+addPc([number] [,percent])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
-| percent | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
+| percent | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -813,13 +813,13 @@ addPc(number, percent)
 ### subPc
 
 ```
-subPc(number, percent)
+subPc([number] [,percent])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
-| percent | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
+| percent | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -840,12 +840,12 @@ _Takes no parameters._
 ### sleep
 
 ```
-sleep(milliseconds)
+sleep([milliseconds])
 ```
 
-| Parameter | Optional |
-|---|---|
-| milliseconds | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| milliseconds | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -854,12 +854,12 @@ sleep(milliseconds)
 ### Count
 
 ```
-Count(arg1)
+Count([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Splits into an array.
 
@@ -871,12 +871,12 @@ Count(arg1)
 ### MaxIndex
 
 ```
-MaxIndex(arg1)
+MaxIndex([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Splits into an array.
 
@@ -888,14 +888,14 @@ MaxIndex(arg1)
 ### Slice
 
 ```
-Slice(source, start, [arg3])
+Slice([source] [,start] [,arg3])
 ```
 
-| Parameter | Optional |
-|---|---|
-| source | no |
-| start | no |
-| arg3 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| source | yes | Optional; omitted value reads as `undefined`. |
+| start | yes | Optional; omitted value reads as `undefined`. |
+| arg3 | yes |  |
 
 **Returns:** `string|array` — Returns a sub-range.
 
@@ -907,13 +907,13 @@ Slice(source, start, [arg3])
 ### Join
 
 ```
-Join(array, [arg2])
+Join([array] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| array | no |
-| arg2 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| array | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes |  |
 
 **Returns:** `string` — Joins an array into a string.
 
@@ -925,12 +925,12 @@ Join(array, [arg2])
 ### Flatten
 
 ```
-Flatten(array)
+Flatten([array])
 ```
 
-| Parameter | Optional |
-|---|---|
-| array | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| array | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Flattens nested arrays.
 
@@ -942,13 +942,13 @@ Flatten(array)
 ### Push
 
 ```
-Push(array, element)
+Push([array] [,element])
 ```
 
-| Parameter | Optional |
-|---|---|
-| array | no |
-| element | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| array | yes | Optional; omitted value reads as `undefined`. |
+| element | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -974,12 +974,12 @@ Purge([arg1])
 ### IsOdd
 
 ```
-IsOdd(number)
+IsOdd([number])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -988,12 +988,12 @@ IsOdd(number)
 ### IsEven
 
 ```
-IsEven(number)
+IsEven([number])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1002,12 +1002,12 @@ IsEven(number)
 ### Invert
 
 ```
-Invert(number)
+Invert([number])
 ```
 
-| Parameter | Optional |
-|---|---|
-| number | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| number | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1016,12 +1016,12 @@ Invert(number)
 ### IsArray
 
 ```
-IsArray(arg1)
+IsArray([Return])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| Return | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1030,12 +1030,12 @@ IsArray(arg1)
 ### IsObject
 
 ```
-IsObject(arg1)
+IsObject([Return])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| Return | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1044,12 +1044,12 @@ IsObject(arg1)
 ### IsString
 
 ```
-IsString(arg1)
+IsString([Return])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| Return | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1058,12 +1058,12 @@ IsString(arg1)
 ### IsNum
 
 ```
-IsNum(arg1)
+IsNum([Return])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| Return | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1104,12 +1104,12 @@ Range(start, end)
 ### IsFloat
 
 ```
-IsFloat(arg1)
+IsFloat([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1118,12 +1118,12 @@ IsFloat(arg1)
 ### Use
 
 ```
-Use(name)
+Use([name])
 ```
 
-| Parameter | Optional |
-|---|---|
-| name | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| name | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1132,12 +1132,12 @@ Use(name)
 ### Solve
 
 ```
-Solve(arg1)
+Solve([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1146,12 +1146,12 @@ Solve(arg1)
 ### Tree
 
 ```
-Tree(arg1)
+Tree([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `(none)` — No return value.
 
@@ -1160,12 +1160,12 @@ Tree(arg1)
 ### ToHex
 
 ```
-ToHex(value)
+ToHex([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Defaults to 0 if omitted. |
 
 **Returns:** `string` — Converts to uppercase.
 
@@ -1174,12 +1174,12 @@ ToHex(value)
 ### FromHex
 
 ```
-FromHex(arg1)
+FromHex([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Returns a modified copy with a replacement applied.
 
@@ -1188,12 +1188,12 @@ FromHex(arg1)
 ### ToBin
 
 ```
-ToBin(arg1)
+ToBin([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1202,12 +1202,12 @@ ToBin(arg1)
 ### FromBin
 
 ```
-FromBin(arg1)
+FromBin([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1216,12 +1216,12 @@ FromBin(arg1)
 ### ToString
 
 ```
-ToString(value)
+ToString([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Serializes to JSON.
 
@@ -1230,12 +1230,12 @@ ToString(value)
 ### ToNum
 
 ```
-ToNum(num)
+ToNum([num])
 ```
 
-| Parameter | Optional |
-|---|---|
-| num | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| num | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1244,12 +1244,12 @@ ToNum(num)
 ### Uppercase
 
 ```
-Uppercase(arg1)
+Uppercase([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Converts to uppercase.
 
@@ -1258,12 +1258,12 @@ Uppercase(arg1)
 ### Lowercase
 
 ```
-Lowercase(arg1)
+Lowercase([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Converts to lowercase.
 
@@ -1272,12 +1272,12 @@ Lowercase(arg1)
 ### Type
 
 ```
-Type(value)
+Type([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string`
 
@@ -1286,13 +1286,13 @@ Type(value)
 ### Trim
 
 ```
-Trim(string, [arg2])
+Trim([string] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| arg2 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes |  |
 
 **Returns:** `string|array` — Returns a sub-range.
 
@@ -1301,12 +1301,12 @@ Trim(string, [arg2])
 ### Reverse
 
 ```
-Reverse(value)
+Reverse([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `array` — Splits into an array.
 
@@ -1315,13 +1315,13 @@ Reverse(value)
 ### Contains
 
 ```
-Contains(haystack, arg2)
+Contains([haystack] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| haystack | no |
-| arg2 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| haystack | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1330,13 +1330,13 @@ Contains(haystack, arg2)
 ### StartsWith
 
 ```
-StartsWith(arg1, arg2)
+StartsWith([arg1] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| arg2 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1345,13 +1345,13 @@ StartsWith(arg1, arg2)
 ### EndsWith
 
 ```
-EndsWith(arg1, arg2)
+EndsWith([arg1] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| arg2 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1360,15 +1360,15 @@ EndsWith(arg1, arg2)
 ### Pad
 
 ```
-Pad(string, arg2, [arg3], [arg4])
+Pad([string] [,arg2] [,arg3] [,arg4])
 ```
 
-| Parameter | Optional |
-|---|---|
-| string | no |
-| arg2 | no |
-| arg3 | yes |
-| arg4 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| string | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes | Optional; omitted value reads as `undefined`. |
+| arg3 | yes |  |
+| arg4 | yes |  |
 
 **Returns:** `unknown`
 
@@ -1377,12 +1377,12 @@ Pad(string, arg2, [arg3], [arg4])
 ### Keys
 
 ```
-Keys(value)
+Keys([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1391,12 +1391,12 @@ Keys(value)
 ### Values
 
 ```
-Values(value)
+Values([value])
 ```
 
-| Parameter | Optional |
-|---|---|
-| value | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| value | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1405,13 +1405,13 @@ Values(value)
 ### Sort
 
 ```
-Sort(list, [arg2])
+Sort([list] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
-| arg2 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes |  |
 
 **Returns:** `array|string` — Reverses order.
 
@@ -1420,12 +1420,12 @@ Sort(list, [arg2])
 ### Unique
 
 ```
-Unique(list)
+Unique([list])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1434,12 +1434,12 @@ Unique(list)
 ### Sum
 
 ```
-Sum(list)
+Sum([list])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number|any` — Aggregates a collection.
 
@@ -1448,12 +1448,12 @@ Sum(list)
 ### Min
 
 ```
-Min(list)
+Min([list])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1462,12 +1462,12 @@ Min(list)
 ### Max
 
 ```
-Max(list)
+Max([list])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1476,12 +1476,12 @@ Max(list)
 ### Avg
 
 ```
-Avg(list)
+Avg([list])
 ```
 
-| Parameter | Optional |
-|---|---|
-| list | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| list | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `number|any` — Aggregates a collection.
 
@@ -1490,13 +1490,13 @@ Avg(list)
 ### Json
 
 ```
-Json(arg1, [arg2])
+Json([arg1] [,arg2])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
-| arg2 | yes |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
+| arg2 | yes |  |
 
 **Returns:** `string` — Serializes to JSON.
 
@@ -1505,12 +1505,12 @@ Json(arg1, [arg2])
 ### Parse
 
 ```
-Parse(arg1)
+Parse([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `any` — Parses JSON back into a value.
 
@@ -1531,12 +1531,12 @@ _Takes no parameters._
 ### Date
 
 ```
-Date(arg1)
+Date([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1545,12 +1545,12 @@ Date(arg1)
 ### Env
 
 ```
-Env(arg1)
+Env([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `string` — Returns a modified copy with a replacement applied.
 
@@ -1559,12 +1559,12 @@ Env(arg1)
 ### Exec
 
 ```
-Exec(arg1)
+Exec([arg1])
 ```
 
-| Parameter | Optional |
-|---|---|
-| arg1 | no |
+| Parameter | Optional | Description |
+|---|---|---|
+| arg1 | yes | Optional; omitted value reads as `undefined`. |
 
 **Returns:** `unknown`
 
@@ -1617,3 +1617,4 @@ _Takes no parameters._
 **Returns:** `(none)` — No return value.
 
 ---
+
