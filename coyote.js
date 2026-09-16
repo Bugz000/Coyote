@@ -92,7 +92,7 @@ const OPERATOR_LESS = new StringToken('<');
 const OPERATOR_LESS_EQUAL = new StringToken('<=');
 const OPERATOR_GREATER = new StringToken('>');
 const OPERATOR_GREATER_EQUAL = new StringToken('>=');
-const OPERATOR_CONCAT = new RegexToken(/\.|[ \t]+/);
+const OPERATOR_CONCAT = new RegexToken(/\.|[ \t]+/); // Joins two values into a string, via `.` or plain whitespace
 const OPERATOR_BITWISE_AND = new StringToken('&');
 const OPERATOR_BITWISE_OR = new StringToken('|');
 const OPERATOR_BITWISE_XOR = new StringToken('^');
@@ -102,7 +102,7 @@ const OPERATOR_ADD = new StringToken('+');
 const OPERATOR_SUB = new StringToken('-');
 const OPERATOR_MUL = new StringToken('*');
 const OPERATOR_DIV = new StringToken('/');
-const OPERATOR_ASSIGN = new StringToken(':=');
+const OPERATOR_ASSIGN = new StringToken(':='); // Assigns a value to a variable
 const OPERATOR_LPAREN = new StringToken('(');
 const OPERATOR_RPAREN = new StringToken(')');
 const OPERATOR_LBRACE = new StringToken('{');
@@ -2243,11 +2243,14 @@ class ASTExecutor {
 			return Math.random() * 100 + 1;
 		} else if (value.length === 1) {
 			// If one argument provided, range is from 0 to the argument
-			return Math.random() * value[0];
+			let max = value[0];
+			return Math.random() * max;
 		} else if (value.length === 2) {
-			// If two arguments provided, range is between the arguments
-			let min = Math.min(value[0], value[1]);
-			let max = Math.max(value[0], value[1]);
+			// If two arguments provided, range is between the arguments (order-independent)
+			let bound1 = value[0];
+			let bound2 = value[1];
+			let min = Math.min(bound1, bound2);
+			let max = Math.max(bound1, bound2);
 			return Math.random() * (max - min) + min;
 		} else {
 			throw new Error("INTERNAL_Rand: Invalid number of arguments");
@@ -3604,8 +3607,3 @@ console.log(print_Coyote_tree(r));
 fs.writeFileSync('outputwwww.txt', JSON.stringify(r, null, 2));
 const executer = new ASTExecutor()
 executer.run(r)
-
-
-
-
-
