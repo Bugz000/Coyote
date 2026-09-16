@@ -28,11 +28,105 @@
 
 ## ✨ Key Features
 
+## ✨ Key Features
+
 * **🧠 Contextual Type Inference:** Mix strings, floats, ints, arrays, and JSON without tedious explicit casts. Coyote automatically digest-coerces types based on operation context.
+```coyote
+; Coyote pairs types by what the operator is trying to do, not by declared type
+weight_str := "72.5"
+height_str := "1.8"
+
+bmi := weight_str / (height_str * height_str)
+print("BMI: " Round(bmi, 1))
+; -> BMI: 22.4
+; "72.5" and "1.8" were parsed as strings off a form, but the moment they
+; hit / and *, Coyote treats them as numbers with zero casting on your part.
+
+verdict := ("22.4" > 18.5) ? "healthy range" : "out of range"
+print("Verdict: " verdict)
+; -> Verdict: healthy range
+```
 * **✨ Clean & Frictionless Syntax:** Simple variable assignments with `:=`, automatic statement delimiter handling, and optional space-based string concatenation (`"Hello " name "!"`).
+```coyote
+name := "Wanderer"
+gold := 340
+inventory := ["Sword", "Shield", "Potion"]
+
+; No semicolons to manage, no + for concatenation - adjacency is enough
+print(name " has " gold " gold and " Count(inventory) " items.")
+; -> Wanderer has 340 gold and 3 items.
+
+; := everywhere - variables, no separate "let/const/var" ceremony
+gold := gold - 50
+print(name " spent 50 gold, now has " gold ".")
+; -> Wanderer spent 50 gold, now has 290.
+```
 * **💻 First-Class TUI & Terminal Primitives:** Direct spatial rendering with `Cell(char, x, y)`, `Cursor(x, y)`, `Clear()`, and reactive environment vars like `A_consoleWidth` and `A_consoleHeight`.
+```coyote
+Clear()
+
+w := A_consoleWidth
+h := A_consoleHeight
+
+; Draw a border using nothing but Cell() placement
+loop(w) {
+    Cell("─", A_Index, 1)
+    Cell("─", A_Index, h)
+}
+loop(h) {
+    Cell("│", 1, A_Index)
+    Cell("│", w, A_Index)
+}
+
+Cursor(3, 1)
+print(" 🐺 COYOTE " A_consoleWidth "x" A_consoleHeight " ")
+Cursor(1, 3)
+print("Rendering directly onto a " w "-column terminal - no ncurses required.")
+```
+
 * **🔋 Batteries-Included Standard Library:** Built-in percentage utilities (`pcChange`, `addPc`), trig functions, regex matchers (`Rem`, `Grep`), string formatters (`Justify`, `Trim`, `StrMid`), and collection operations (`Flatten`, `Purge`, `Slice`).
+```coyote
+; Finance: how much did the position move, and what's it worth reversed?
+old_price := 84.20
+new_price := 91.55
+print("Move: " Round(PcChange(old_price, new_price), 2) "%")
+; -> Move: 8.73%
+
+; Text: pull every "error" line out of a log blob and count them
+log := FRead("server.log")
+errors := Grep("error", log)
+print(Count(errors) " error line(s) found:")
+print(Justify(Join(errors, "\n"), "left", 60))
+
+; Collections: dedupe, sort, and summarize in three calls
+scores := [88, 72, 91, 72, 65, 88, 100]
+clean := Sort(Unique(scores))
+print("Unique scores: " Join(clean, ", ") " | avg: " Round(Avg(clean), 1))
+; -> Unique scores: 65, 72, 88, 91, 100 | avg: 83.2
+```
 * **🌉 Seamless JS/Node Bridge & Fluent Chaining:** Run Coyote ASTs directly or build chained Coyote expressions natively in JavaScript via the `CoyoteVar` promise bridge: `x.tohex().upper().print()`.
+```coyote
+const { ASTExecutor } = require('./coyote.js');
+
+const engine = new ASTExecutor();
+engine.set("token", "deadBEEF12");
+
+// Build the AST fluently from JS - each call queues another node until
+// you actually need the value, then it resolves the whole chain at once
+const label = await engine
+    .getvar("token")
+    .upper()
+    .justify("center", 16);
+
+console.log(`[${label.toString()}]`);
+// -> [   DEADBEEF12    ]
+
+// Mix raw Coyote script and JS-side chaining in the same run
+await engine.run(`total := AddPc(200, 15)`);
+const total = await engine.getvar("total").tohex();
+console.log("Hex of total:", total.toString());
+// -> Hex of total: E9
+```
 
 ---
 
