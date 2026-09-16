@@ -1,0 +1,99 @@
+;it should be able to do this in like 20 lines, i'm so sorry lmfao
+screenWidth := 48
+screenHeight := 22
+scale := 0.45
+S := 12
+
+angleA := 0.0
+angleB := 0.0
+
+Loop (50) {
+    Clear()
+
+    p1x := ProjX(-S, -S, -S, angleA, angleB, scale, screenWidth)
+    p1y := ProjY(-S, -S, -S, angleA, angleB, scale, screenHeight)
+    p2x := ProjX(S, -S, -S, angleA, angleB, scale, screenWidth)
+    p2y := ProjY(S, -S, -S, angleA, angleB, scale, screenHeight)
+    p3x := ProjX(S, S, -S, angleA, angleB, scale, screenWidth)
+    p3y := ProjY(S, S, -S, angleA, angleB, scale, screenHeight)
+    p4x := ProjX(-S, S, -S, angleA, angleB, scale, screenWidth)
+    p4y := ProjY(-S, S, -S, angleA, angleB, scale, screenHeight)
+    p5x := ProjX(-S, -S, S, angleA, angleB, scale, screenWidth)
+    p5y := ProjY(-S, -S, S, angleA, angleB, scale, screenHeight)
+    p6x := ProjX(S, -S, S, angleA, angleB, scale, screenWidth)
+    p6y := ProjY(S, -S, S, angleA, angleB, scale, screenHeight)
+    p7x := ProjX(S, S, S, angleA, angleB, scale, screenWidth)
+    p7y := ProjY(S, S, S, angleA, angleB, scale, screenHeight)
+    p8x := ProjX(-S, S, S, angleA, angleB, scale, screenWidth)
+    p8y := ProjY(-S, S, S, angleA, angleB, scale, screenHeight)
+
+    y := 0
+    Loop (screenHeight) {
+        lineStr := ""
+        x := 0
+        Loop (screenWidth) {
+            ch := " "
+
+            if (HitEdge(x, y, p1x, p1y, p2x, p2y)) { ch := "." }
+            if (HitEdge(x, y, p2x, p2y, p3x, p3y)) { ch := "." }
+            if (HitEdge(x, y, p3x, p3y, p4x, p4y)) { ch := "." }
+            if (HitEdge(x, y, p4x, p4y, p1x, p1y)) { ch := "." }
+
+            if (HitEdge(x, y, p5x, p5y, p6x, p6y)) { ch := "." }
+            if (HitEdge(x, y, p6x, p6y, p7x, p7y)) { ch := "." }
+            if (HitEdge(x, y, p7x, p7y, p8x, p8y)) { ch := "." }
+            if (HitEdge(x, y, p8x, p8y, p5x, p5y)) { ch := "." }
+
+            if (HitEdge(x, y, p1x, p1y, p5x, p5y)) { ch := "." }
+            if (HitEdge(x, y, p2x, p2y, p6x, p6y)) { ch := "." }
+            if (HitEdge(x, y, p3x, p3y, p7x, p7y)) { ch := "." }
+            if (HitEdge(x, y, p4x, p4y, p8x, p8y)) { ch := "." }
+
+            if (x = p1x) { if (y = p1y) { ch := "." } }
+            if (x = p2x) { if (y = p2y) { ch := "." } }
+            if (x = p3x) { if (y = p3y) { ch := "." } }
+            if (x = p4x) { if (y = p4y) { ch := "." } }
+            if (x = p5x) { if (y = p5y) { ch := "." } }
+            if (x = p6x) { if (y = p6y) { ch := "." } }
+            if (x = p7x) { if (y = p7y) { ch := "." } }
+            if (x = p8x) { if (y = p8y) { ch := "." } }
+
+            lineStr := lineStr ch
+            x := x + 1
+        }
+        Print(lineStr)
+        y := y + 1
+    }
+
+    angleA := angleA + 0.08
+    angleB := angleB + 0.12
+    Sleep(30)
+}
+
+ProjX(x, y, z, a, b, scale, width) {
+    yR := y * Cos(a) - z * Sin(a)
+    zR := y * Sin(a) + z * Cos(a)
+    xR := x * Cos(b) + zR * Sin(b)
+    return Round(width / 2 + xR * scale * 2.1)
+}
+
+ProjY(x, y, z, a, b, scale, height) {
+    yR := y * Cos(a) - z * Sin(a)
+    zR := y * Sin(a) + z * Cos(a)
+    return Round(height / 2 + yR * scale)
+}
+
+HitEdge(tx, ty, x1, y1, x2, y2) {
+    mx := Round((x1 + x2) / 2)
+    my := Round((y1 + y2) / 2)
+    q1x := Round((x1 + mx) / 2)
+    q1y := Round((y1 + my) / 2)
+    q2x := Round((mx + x2) / 2)
+    q2y := Round((my + y2) / 2)
+
+    if (tx = mx) { if (ty = my) { return 1 } }
+    if (tx = q1x) { if (ty = q1y) { return 1 } }
+    if (tx = q2x) { if (ty = q2y) { return 1 } }
+
+    return 0
+}

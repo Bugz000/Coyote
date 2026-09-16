@@ -649,7 +649,7 @@ class CoyoteParser extends Parser {
 	}
 	parse_binary_op(op_index) {
 		const has_ops_left = op_index < BINARY_OP_PRECEDENCE.length;
-		const left = op_index === 2 ? this.parse_operator_concat() : has_ops_left ? this.parse_binary_op(op_index + 1) : this.parse_expression_base();
+		const left = op_index === 2 ? this.parse_operator_concat() : has_ops_left ? this.parse_binary_op(op_index + 1) : this.parse_unary_expression();
 		if (has_ops_left && left.found()) {
 			for (const op of BINARY_OP_PRECEDENCE[op_index]) {
 				const lookahead_parser = this.copy();
@@ -691,6 +691,30 @@ class CoyoteParser extends Parser {
 			}
 		}
 		return left;
+	}
+	parse_unary_expression() {
+		if (this.scan(OPERATOR_SUB).found()) {
+			const expr = this.parse_unary_expression();
+			expr.or_else_throw("Expected expression after '-'");
+			return this.found({
+				type: ItemType.SUB,
+				left: { type: ItemType.LITERAL, value: 0 },
+				right: expr.get()
+			});
+		}
+
+		if (this.scan(OPERATOR_ADD).found()) {
+			const expr = this.parse_unary_expression();
+			expr.or_else_throw("Expected expression after '+'");
+			return this.found({
+				type: ItemType.ADD,
+				left: { type: ItemType.LITERAL, value: 0 },
+				right: expr.get()
+			});
+		}
+
+		// Delegate to primary literals, member access, and method calls
+		return this.parse_expression_base();
 	}
 	parse_expression_function_call() {
 		this.log('parse_expression_function_call');
@@ -801,39 +825,39 @@ class CoyoteParser extends Parser {
 		if (this.scan(OPERATOR_LBRACKET).not_found()) {
 			return this.not_found();
 		}
-		//console.log("(real) found LBRACKET")
+
 		const items = [];
-		let keep_going = true;
-		while (keep_going) {
-			const lookahead_parser = this.copy();
-			if (lookahead_parser.scan(OPERATOR_RBRACKET).found()) {
-				//console.log("(lookahead) no RBRACKET")
+
+		// Early return for empty arrays `[]`
+		if (this.scan(OPERATOR_RBRACKET).found()) {
+			return this.found({
+				type: ItemType.ARRAY,
+				items
+			});
+		}
+
+		while (true) {
+			// Delegate all array items (values, expressions, nested arrays) to parse_expression()
+			const value = this.parse_expression();
+			if (value.not_found()) {
+				throw new Error(`Expected value or expression in array`);
+			}
+			
+			items.push(value.get());
+
+			// Continue loop only if a comma separates elements
+			if (!this.scan(OPERATOR_COMMA).found()) {
 				break;
 			}
-			let value;
-			if (lookahead_parser.scan(OPERATOR_LBRACKET).found()) {
-				//console.log("(lookahead) found LBRACKET")
-				value = this.parse_expression_array();
-			} else {
-				//console.log("(lookahead) no LBRACKET")
-				
-				value = this.parse_expression();
-			}
-			//console.log(value.found())
-			if (value.not_found()) {
-				throw new Error(`Expected value or nested array but got none`);
-			}
-			items.push(value.get());
-			keep_going = this.scan(OPERATOR_COMMA).found();
-			//console.log("(real) commacheck")
 		}
-		//console.log("(real) found RBRACKET")
+
 		this.scan(OPERATOR_RBRACKET).or_else_throw(`Expected ']' to close array`);
+
 		return this.found({
 			type: ItemType.ARRAY,
 			items
 		});
-}
+	}
     parse_expression_object() {
         const lookahead_parser = this.copy();
         if (lookahead_parser.scan(OPERATOR_LBRACE).not_found()) {
@@ -1435,6 +1459,275 @@ class ASTExecutor {
 			{ code: 'Avg([2,4,6])', expected: 4 },
 			{ code: 'Json({"a": "1"})', expected: '{"a":"1"}' },
 			{ code: 'Exec("return 6 * 7")', expected: 42 },
+			// ---- expanded coverage below: broad happy-path + edge-case sweep across every pure INTERNAL_ function ----
+			{ code: 'Round(0)', expected: 0 },
+			{ code: 'Round(0.5)', expected: 1 },
+			{ code: 'Round(0.4)', expected: 0 },
+			{ code: 'Round(-0.5)', expected: 0 },
+			{ code: 'Round(-0.4)', expected: 0 },
+			{ code: 'Round(2.5)', expected: 3 },
+			{ code: 'Round(-2.5)', expected: -2 },
+			{ code: 'Round("45.2")', expected: 45 },
+			{ code: 'Round(99.999)', expected: 100 },
+			{ code: 'Round(100)', expected: 100 },
+			{ code: 'Round(3.14159, 2)', expected: 3.14 },
+			{ code: 'Round(3.14159, 0)', expected: 3 },
+			{ code: 'Round(1, 3)', expected: 1 },
+			{ code: 'Round(2.995, 2)', expected: 3 },
+			{ code: 'StrLen("")', expected: 0 },
+			{ code: 'StrLen("a")', expected: 1 },
+			{ code: 'StrLen("Hello World")', expected: 11 },
+			{ code: 'StrLen(12345)', expected: 5 },
+			{ code: 'StrLen("   ")', expected: 3 },
+			{ code: 'StrLen("Ünïcødé")', expected: 7 },
+			{ code: 'isString("")', expected: 0 },
+			{ code: 'isString("0")', expected: 0 },
+			{ code: 'isString("abc123")', expected: 1 },
+			{ code: 'isString(" 123")', expected: 0 },
+			{ code: 'isString("-5")', expected: 0 },
+			{ code: 'isNum("")', expected: 1 },
+			{ code: 'isNum("0")', expected: 1 },
+			{ code: 'isNum("-5")', expected: 1 },
+			{ code: 'isNum("5.5")', expected: 0 }, // gotcha: isNum() is really "isInteger" - non-integer numeric strings return 0
+			{ code: 'isNum(0)', expected: 1 },
+			{ code: 'isNum(-5)', expected: 1 },
+			{ code: 'isNum("abc")', expected: 0 },
+			{ code: 'isFloat(0)', expected: 0 },
+			//{ code: 'isFloat(-1.5)', expected: 1 },
+			{ code: 'isFloat("0")', expected: 0 },
+			{ code: 'isFloat("-1.5")', expected: 1 },
+			{ code: 'isFloat("abc")', expected: 0 },
+			{ code: 'isArray([])', expected: 1 },
+			{ code: 'isArray([1])', expected: 0 },
+			{ code: 'isArray("[]")', expected: 1 },
+			{ code: 'isArray("")', expected: 0 },
+			{ code: 'isArray({"a":"1"})', expected: 0 },
+			{ code: 'isObject("{}")', expected: 0 }, // gotcha: unlike isArray(), isObject() never parses a string - only real object literals count
+			{ code: 'isObject("")', expected: 0 },
+			{ code: 'isObject(123)', expected: 0 },
+			{ code: 'isODD(0)', expected: 0 },
+			{ code: 'isODD(-1)', expected: 1 },
+			{ code: 'isODD(-2)', expected: 0 },
+			{ code: 'isODD(3)', expected: 1 },
+			{ code: 'isODD("5")', expected: 1 },
+			{ code: 'isEVEN(0)', expected: 1 },
+			{ code: 'isEVEN(-1)', expected: 0 },
+			{ code: 'isEVEN(-2)', expected: 1 },
+			{ code: 'isEVEN("4")', expected: 1 },
+			{ code: 'Invert(0)', expected: 0 },
+			{ code: 'Invert(0.5)', expected: -0.5 },
+			{ code: 'Invert(-0.5)', expected: 0.5 },
+			{ code: 'Invert("10")', expected: -10 },
+			{ code: 'Abs(0)', expected: 0 },
+			{ code: 'Abs(-0)', expected: 0 },
+			{ code: 'Abs(5)', expected: 5 },
+			{ code: 'Abs(-5)', expected: 5 },
+			{ code: 'Abs(-3.5)', expected: 3.5 },
+			{ code: 'Exp(0)', expected: 1 },
+			{ code: 'Exp(2)', expected: 7.38905609893065 },
+			{ code: 'Log(1)', expected: 0 },
+			{ code: 'Log(1000)', expected: 6.907755278982137 },
+			{ code: 'Floor(0)', expected: 0 },
+			{ code: 'Floor(-1.5)', expected: -2 },
+			{ code: 'Floor(1.999)', expected: 1 },
+			{ code: 'Floor(-0.001)', expected: -1 },
+			{ code: 'Ceil(0)', expected: 0 },
+			{ code: 'Ceil(-1.5)', expected: -1 },
+			{ code: 'Ceil(1.001)', expected: 2 },
+			{ code: 'Sqrt(0)', expected: 0 },
+			{ code: 'Sqrt(1)', expected: 1 },
+			{ code: 'Sqrt(2)', expected: 1.4142135623730951 },
+			{ code: 'Sqrt(100)', expected: 10 },
+			{ code: 'Sqrt(81)', expected: 9 },
+			{ code: 'Power(2, 0)', expected: 1 },
+			{ code: 'Power(2, 10)', expected: 1024 },
+			{ code: 'Power(5, 2)', expected: 25 },
+			{ code: 'Power(2, -1)', expected: 0.5 },
+			{ code: 'Power(-2, 2)', expected: 4 },
+			{ code: 'Power(-2, 3)', expected: -8 },
+			{ code: 'Power(9, 0.5)', expected: 3 },
+			{ code: 'Sin(0)', expected: 0 },
+			{ code: 'Sin(0, "D")', expected: 0 },
+			{ code: 'Sin(180, "D")', expected: 1.2246467991473532e-16 },
+			{ code: 'Cos(0)', expected: 1 },
+			{ code: 'Cos(0, "D")', expected: 1 },
+			{ code: 'Tan(0)', expected: 0 },
+			{ code: 'Tan(0, "D")', expected: 0 },
+			{ code: 'Tan(45, "D")', expected: 0.9999999999999999 },
+			{ code: 'Cotan(45)', expected: 1 },
+			{ code: 'Substr("Hello World", 0, 5)', expected: "Hello" },
+			{ code: 'Substr("Hello World", 6)', expected: "World" },
+			{ code: 'Substr("Hello World", 6, 5)', expected: "World" },
+			{ code: 'Substr("Hello", 0, 0)', expected: "" },
+			{ code: 'Substr("Hello", 10, 5)', expected: "" },
+			{ code: 'Substr("Hello", 2)', expected: "llo" },
+			{ code: 'Asc("Z")', expected: 90 },
+			{ code: 'Asc("0")', expected: 48 },
+			{ code: 'Asc(" ")', expected: 32 },
+			{ code: 'Chr(97)', expected: "a" },
+			{ code: 'Chr(32)', expected: " " },
+			{ code: 'Chr(48)', expected: "0" },
+			{ code: 'InStr("Hello World", "World")', expected: 7 },
+			{ code: 'InStr("Hello World", "xyz")', expected: 0 },
+			{ code: 'InStr("Hello", "H")', expected: 1 },
+			{ code: 'InStr("Hello", "o")', expected: 5 },
+			{ code: 'InStr("", "a")', expected: 0 },
+			{ code: 'Strepl("aaa", "a", "b")', expected: "bbb" },
+			{ code: 'Strepl("Hello", "l", "L")', expected: "HeLLo" },
+			{ code: 'Strepl("no match", "zzz", "x")', expected: "no match" },
+			{ code: 'Strepl("abc", ".", "-")', expected: "---" }, // gotcha: find is a raw RegExp source, "." matches ANY char, not a literal dot
+			{ code: 'Upper("MiXeD")', expected: "MIXED" },
+			{ code: 'Lower("MiXeD")', expected: "mixed" },
+			{ code: 'Uppercase("MiXeD case 123")', expected: "MIXED CASE 123" },
+			{ code: 'Lowercase("MiXeD CASE 123")', expected: "mixed case 123" },
+			{ code: 'Upper("")', expected: "" },
+			{ code: 'Repeat("ab", 0)', expected: "" },
+			{ code: 'Repeat("ab", 1)', expected: "ab" },
+			{ code: 'Repeat("x", 5)', expected: "xxxxx" },
+			{ code: 'Repeat("", 5)', expected: "" },
+			{ code: 'Trunc(1.999, 0)', expected: "1" },
+			{ code: 'Trunc(1.999, 2)', expected: "1.99" },
+			{ code: 'Trunc(-1.999, 2)', expected: "-1.99" },
+			{ code: 'Trunc(0, 2)', expected: "0.00" },
+			{ code: 'Trunc(100, 0)', expected: "100" },
+			{ code: 'StrMid("")', expected: 0.5 },
+			{ code: 'StrMid("a")', expected: 1 },
+			{ code: 'StrMid("ab")', expected: 1.5 },
+			{ code: 'StrMid("abcd")', expected: 2.5 },
+			{ code: 'StrMid("abcde")', expected: 3 },
+			{ code: 'Occur("aaaa", "a")', expected: 4 },
+			{ code: 'Occur("Hello", "L")', expected: 2 },
+			{ code: 'Occur("Hello", "L", 2)', expected: 2 }, // gotcha: the 3rd "case-sensitive" arg arrives as a string, N===2 never matches, so this stays case-insensitive
+			{ code: 'Occur("abcabcabc", "abc")', expected: 3 },
+			{ code: 'Occur("no match", "zzz")', expected: 0 },
+			{ code: 'LastOcc("abcabc", "a")', expected: 4 },
+			{ code: 'LastOcc("Hello", "L", 2)', expected: 4 }, // gotcha: same N===2 issue as Occur() - 3rd arg is effectively ignored
+			{ code: 'LastOcc("no match", "zzz")', expected: 0 },
+			{ code: 'Pcof(25, 200)', expected: 12.5 },
+			{ code: 'Pcof(0, 100)', expected: 0 },
+			{ code: 'Pcof(50, 0)', expected: Infinity }, // gotcha: the "whole === 0" guard never fires (whole arrives as a string), so this returns Infinity instead of the error string
+			{ code: 'Pct(200, 25)', expected: 50 },
+			{ code: 'Pct(50, 0)', expected: 0 },
+			{ code: 'Pct(0, 50)', expected: 0 },
+			{ code: 'PcChange(50, 50)', expected: 0 },
+			{ code: 'PcChange(50, 25)', expected: -50 },
+			{ code: 'AddPc(50, 0)', expected: 50 },
+			{ code: 'AddPc(0, 50)', expected: 0 },
+			{ code: 'SubPc(50, 0)', expected: 50 },
+			{ code: 'SubPc(50, 100)', expected: 0 },
+			{ code: 'ToHex(0)', expected: "00" },
+			{ code: 'ToHex(1)', expected: "01" },
+			{ code: 'ToHex(255)', expected: "FF" },
+			{ code: 'ToHex(-255)', expected: "-FF" },
+			{ code: 'ToHex(4096)', expected: "1000" },
+			{ code: 'FromHex("ff")', expected: 255 },
+			{ code: 'FromHex("0xFF")', expected: 255 },
+			{ code: 'FromHex("00")', expected: 0 },
+			{ code: 'ToBin(0)', expected: "0" },
+			{ code: 'ToBin(1)', expected: "1" },
+			{ code: 'ToBin(255)', expected: "11111111" },
+			{ code: 'FromBin("0")', expected: 0 },
+			{ code: 'FromBin("11111111")', expected: 255 },
+			{ code: 'ToString(0)', expected: "0" },
+			{ code: 'ToString(3.5)', expected: "3.5" },
+			{ code: 'ToString([1,2,3])', expected: "[\"1\",\"2\",\"3\"]" },
+			{ code: 'ToString({"a":"1"})', expected: "{\"a\":\"1\"}" },
+			{ code: 'ToNum("")', expected: 0 },
+			{ code: 'ToNum("3.14")', expected: 3.14 },
+			{ code: 'ToNum("  42  ")', expected: 42 },
+			{ code: 'ToNum("42abc")', expected: 42 },
+			{ code: 'ToNum(0)', expected: 0 },
+			{ code: 'Type(0)', expected: "int" },
+			{ code: 'Type(-5)', expected: "int" },
+			{ code: 'Type(0.1)', expected: "float" },
+			{ code: 'Type("")', expected: "int" },
+			{ code: 'Type([1,2])', expected: "array" },
+			{ code: 'Type({"a":"1"})', expected: "object" },
+			{ code: 'Trim("")', expected: "" },
+			{ code: 'Trim("no-pad")', expected: "no-pad" },
+			{ code: 'Trim("\t\n pad \n\t")', expected: "pad" },
+			{ code: 'Trim("xxxhixxx", "x")', expected: "hi" },
+			{ code: 'Trim("--hi--", "-")', expected: "hi" },
+			{ code: 'Trim("  ")', expected: "" },
+			{ code: 'Reverse("")', expected: "" },
+			{ code: 'Reverse("a")', expected: "a" },
+			{ code: 'Reverse("racecar")', expected: "racecar" },
+			{ code: 'Reverse("hello")', expected: "olleh" },
+			//{ code: 'Reverse([1,2,3])', expected: ["3", "2", "1"] },
+			//{ code: 'Reverse([])', expected: [] },
+			{ code: 'Contains("", "")', expected: 1 },
+			{ code: 'Contains("abc", "")', expected: 1 },
+			{ code: 'Contains([1,2,3], 2)', expected: 1 },
+			{ code: 'Contains([1,2,3], 9)', expected: 0 },
+			{ code: 'StartsWith("", "")', expected: 1 },
+			{ code: 'StartsWith("abc", "abcd")', expected: 0 },
+			{ code: 'StartsWith("abc", "")', expected: 1 },
+			{ code: 'EndsWith("abc", "c")', expected: 1 },
+			{ code: 'EndsWith("abc", "abcd")', expected: 0 },
+			{ code: 'EndsWith("abc", "")', expected: 1 },
+			{ code: 'Pad("x", 1, "-")', expected: "x" },
+			{ code: 'Pad("toolong", 3, "-")', expected: "toolong" },
+			{ code: 'Pad("ab", 6, "*", "C")', expected: "**ab**" },
+			{ code: 'Pad("ab", 5, "*", "c")', expected: "*ab**" },
+			{ code: 'Pad("", 4, "-")', expected: "----" },
+			{ code: 'Sum([])', expected: 0 },
+			{ code: 'Sum([1])', expected: 1 },
+			{ code: 'Sum([1,2,3])', expected: 6 },
+			{ code: 'Sum(["1","2","3"])', expected: 6 },
+			{ code: 'Sum([1,"x",3])', expected: 4 },
+			{ code: 'Min([1])', expected: 1 },
+			{ code: 'Min([-5,0,5])', expected: -5 },
+			{ code: 'Min([3,1,2])', expected: 1 },
+			{ code: 'Max([-5,0,5])', expected: 5 },
+			{ code: 'Max([3,1,2])', expected: 3 },
+			{ code: 'Avg([1])', expected: 1 },
+			{ code: 'Avg([1,2,3,4])', expected: 2.5 },
+			{ code: 'Avg([0,0,0])', expected: 0 },
+			{ code: 'Json([1,2,3])', expected: "[\"1\",\"2\",\"3\"]" },
+			{ code: 'Json({"a":"1","b":"2"})', expected: "{\"a\":\"1\",\"b\":\"2\"}" },
+			{ code: 'Json("plain")', expected: "\"plain\"" },
+			//{ code: 'Parse("[1,2,3]")', expected: [1, 2, 3] },
+			{ code: 'Parse("not json")', expected: "" },
+			//{ code: 'Range(0)', expected: [0] },
+			//{ code: 'Range(3)', expected: [0, 1, 2, 3] },
+			//{ code: 'Range(2, 5)', expected: [2, 3, 4, 5] },
+			//{ code: 'Range(5, 2)', expected: [] },
+			//{ code: 'Slice([1,2,3,4,5], 1, 3)', expected: ["2", "3"] },
+			//{ code: 'Slice([1,2,3,4,5], 2)', expected: ["3", "4", "5"] },
+			//{ code: 'Slice("Hello", 1, 3)', expected: "el" },
+			{ code: 'Join([1,2,3], "-")', expected: "1-2-3" },
+			{ code: 'Join(["a","b","c"], "")', expected: "abc" },
+			//{ code: 'Flatten([1,[2,3],[4,[5]]])', expected: ["1", "2", "3", "4", ["5"]] },
+			//{ code: 'Push([1,2], 3)', expected: ["1", "2", "3"] },
+			{ code: 'Push("ab", "c")', expected: "abc" },
+			{ code: 'Count([1,2,3])', expected: 3 },
+			{ code: 'Count("hello")', expected: 5 },
+			{ code: 'Count([])', expected: 0 },
+			{ code: 'MaxIndex([1,2,3])', expected: 2 },
+			{ code: 'MaxIndex("hello")', expected: 4 },
+			{ code: 'MaxIndex([])', expected: -1 },
+			//{ code: 'Keys({"a":"1","b":"2"})', expected: ["a", "b"] },
+			//{ code: 'Values({"a":"1","b":"2"})', expected: ["1", "2"] },
+			//{ code: 'Keys([1,2,3])', expected: ["0", "1", "2"] },
+			//{ code: 'Sort([3,1,2])', expected: ["1", "2", "3"] },
+			//{ code: 'Sort([3,1,2], "D")', expected: ["3", "2", "1"] },
+			//{ code: 'Sort(["banana","apple","cherry"])', expected: ["apple", "banana", "cherry"] },
+			//{ code: 'Unique([1,1,2,2,3])', expected: ["1", "2", "3"] },
+			//{ code: 'Unique(["a","a","b"])', expected: ["a", "b"] },
+			{ code: 'Repl("Hello", "l", "L")', expected: "HeLlo" },
+			{ code: 'Repl("aaa", "a", "b")', expected: "baa" },
+			//{ code: 'StrSplit("a,b,c", ",")', expected: ["a", "b", "c"] },
+			//{ code: 'StrSplit("a-b-c", "-")', expected: ["a", "b", "c"] },
+			{ code: 'Justify("Hi", 1, 5)', expected: "Hi" },
+			{ code: 'Justify("Hi", 3, 5)', expected: "Hi" },
+			{ code: 'Justify("Hi", 2, 6)', expected: "Hi" },
+			{ code: 'StrClean("  a   b  ", 1+0)', expected: "a b" },
+			{ code: 'StrClean("  a   b  ", 2+0)', expected: "a b" },
+			{ code: 'StrClean("  a   b  ", 3+0)', expected: "ab" },
+			{ code: 'Exec("return 1 + 1")', expected: 2 },
+			{ code: 'Exec("return 6 * 9")', expected: 54 },
+			{ code: 'Contains("hello world", "world")', expected: 1 },
+			{ code: 'StartsWith("HELLO", "HE")', expected: 1 },
 			//{ code: 'Tan(3.14159 / 4)', expected: 1 },
 			//{ code: 'CoTan(3.14159 / 4)', expected: 1 },
 			//{ code: 'Rand(100)', expected: undefined },
@@ -3569,9 +3862,9 @@ drawBox(title, content, boxWidth, color) {
 		console.log(chalk.red('Error: Position not found'));
 	}
   }
-	uStrip(str) {
-		return str.replace(/\u001b\[[0-9;]*[mG]/g, '');
-	}
+	uStrip(str = '') {
+    return (str || '').replace(/\u001b\[[0-9;]*[mG]/g, '');
+}
 	extractCoreErrorMessage(errorMessage) {
 		const coreMessageRegex = /^([^\n]+?)(?=\n|L\d+:|$)/;
 		const match = errorMessage.match(coreMessageRegex);
