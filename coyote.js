@@ -88,8 +88,8 @@ const OPERATOR_TERNARY_IF = new StringToken('?', 'Begins the true-branch of a te
 const OPERATOR_TERNARY_ELSE = new StringToken(':', 'Separates the true and false branches of a ternary expression');
 const OPERATOR_OR = new StringToken('||', 'Logical OR');
 const OPERATOR_AND = new StringToken('&&', 'Logical AND');
-const OPERATOR_EQUAL = new RegexToken(/=|==/, 'Equality comparison');
-const OPERATOR_NOT_EQUAL = new RegexToken(/!=|!==/, 'Inequality comparison');
+const OPERATOR_EQUAL = new RegexToken(/==|=/, 'Equality comparison');
+const OPERATOR_NOT_EQUAL = new RegexToken(/!==|!=/, 'Inequality comparison');
 const OPERATOR_LESS = new StringToken('<', 'Less-than comparison');
 const OPERATOR_LESS_EQUAL = new StringToken('<=', 'Less-than-or-equal comparison');
 const OPERATOR_GREATER = new StringToken('>', 'Greater-than comparison');
@@ -828,6 +828,13 @@ class CoyoteParser extends Parser {
 
 		const items = [];
 
+		// Arrays can break across lines, so skip any whitespace, comments and
+		// newlines sitting between the bracket/comma and the next item.
+		const skip_array_trivia = () => {
+			while (this.scan(WHITESPACE).found() || this.scan(LINE_COMMENT).found() || this.scan(NEWLINE).found()) {}
+		};
+		skip_array_trivia();
+
 		// Early return for empty arrays `[]`
 		if (this.scan(OPERATOR_RBRACKET).found()) {
 			return this.found({
@@ -837,6 +844,7 @@ class CoyoteParser extends Parser {
 		}
 
 		while (true) {
+			skip_array_trivia();
 			// Delegate all array items (values, expressions, nested arrays) to parse_expression()
 			const value = this.parse_expression();
 			if (value.not_found()) {
@@ -844,6 +852,7 @@ class CoyoteParser extends Parser {
 			}
 			
 			items.push(value.get());
+			skip_array_trivia();
 
 			// Continue loop only if a comma separates elements
 			if (!this.scan(OPERATOR_COMMA).found()) {
@@ -851,6 +860,7 @@ class CoyoteParser extends Parser {
 			}
 		}
 
+		skip_array_trivia();
 		this.scan(OPERATOR_RBRACKET).or_else_throw(`Expected ']' to close array`);
 
 		return this.found({
@@ -1362,6 +1372,7 @@ class ASTExecutor {
 		return (await this.spawn().execute_ast((await this.make_ast(ast))['statements'][0]))
 	}
 	async verifyInternalFunctions() {
+		//UNIT TESTS
 		const assertions = [
 			{ code: 'pcChange(100, 150)', expected: 50 },
 			{ code: 'pcChange(200, 100)', expected: -50 },
@@ -1408,7 +1419,7 @@ class ASTExecutor {
 			{ code: 'Sin(a_pi / 2)', expected: 1 },
 			{ code: 'Sin(90, "D")', expected: 1 },
 			{ code: 'Cos(3.14159)', expected: -0.9999999999964793 },
-			{ code: 'Cos(a_pi)', expected: -0.9899924966004454 },
+			{ code: 'Cos(a_pi)', expected: -1 }, // was -0.9899924966004454, which only "passed" because Cos used to floor a_pi down to 3 before taking the cosine
 			{ code: 'Ceil(123.456)', expected: 124 },
 			{ code: 'Substr("Hello", 1, 3)', expected: 'ell' },
 			{ code: 'Asc("A")', expected: 65 },
@@ -1488,12 +1499,20 @@ class ASTExecutor {
 			{ code: 'isNum("")', expected: 1 },
 			{ code: 'isNum("0")', expected: 1 },
 			{ code: 'isNum("-5")', expected: 1 },
-			{ code: 'isNum("5.5")', expected: 0 }, // gotcha: isNum() is really "isInteger" - non-integer numeric strings return 0
+			{ code: 'isNum("5.5")', expected: 1 }, // isNum() now means "is a number at all" - use isInt() to check for whole numbers specifically
 			{ code: 'isNum(0)', expected: 1 },
 			{ code: 'isNum(-5)', expected: 1 },
 			{ code: 'isNum("abc")', expected: 0 },
+			{ code: 'isInt("123")', expected: 1 },
+			{ code: 'isInt(123)', expected: 1 },
+			{ code: 'isInt("-5")', expected: 1 },
+			{ code: 'isInt(-5)', expected: 1 },
+			{ code: 'isInt("0")', expected: 1 },
+			{ code: 'isInt("5.5")', expected: 0 },
+			{ code: 'isInt(5.5)', expected: 0 },
+			{ code: 'isInt("abc")', expected: 0 },
 			{ code: 'isFloat(0)', expected: 0 },
-			//{ code: 'isFloat(-1.5)', expected: 1 },
+			{ code: 'isFloat(-1.5)', expected: 1 },
 			{ code: 'isFloat("0")', expected: 0 },
 			{ code: 'isFloat("-1.5")', expected: 1 },
 			{ code: 'isFloat("abc")', expected: 0 },
@@ -1653,8 +1672,8 @@ class ASTExecutor {
 			{ code: 'Reverse("a")', expected: "a" },
 			{ code: 'Reverse("racecar")', expected: "racecar" },
 			{ code: 'Reverse("hello")', expected: "olleh" },
-			//{ code: 'Reverse([1,2,3])', expected: ["3", "2", "1"] },
-			//{ code: 'Reverse([])', expected: [] },
+			{ code: 'Reverse([1,2,3])', expected: ["3", "2", "1"] },
+			{ code: 'Reverse([])', expected: [] },
 			{ code: 'Contains("", "")', expected: 1 },
 			{ code: 'Contains("abc", "")', expected: 1 },
 			{ code: 'Contains([1,2,3], 2)', expected: 1 },
@@ -1686,19 +1705,19 @@ class ASTExecutor {
 			{ code: 'Json([1,2,3])', expected: "[\"1\",\"2\",\"3\"]" },
 			{ code: 'Json({"a":"1","b":"2"})', expected: "{\"a\":\"1\",\"b\":\"2\"}" },
 			{ code: 'Json("plain")', expected: "\"plain\"" },
-			//{ code: 'Parse("[1,2,3]")', expected: [1, 2, 3] },
+			{ code: 'Parse("[1,2,3]")', expected: [1, 2, 3] },
 			{ code: 'Parse("not json")', expected: "" },
-			//{ code: 'Range(0)', expected: [0] },
-			//{ code: 'Range(3)', expected: [0, 1, 2, 3] },
-			//{ code: 'Range(2, 5)', expected: [2, 3, 4, 5] },
-			//{ code: 'Range(5, 2)', expected: [] },
-			//{ code: 'Slice([1,2,3,4,5], 1, 3)', expected: ["2", "3"] },
-			//{ code: 'Slice([1,2,3,4,5], 2)', expected: ["3", "4", "5"] },
-			//{ code: 'Slice("Hello", 1, 3)', expected: "el" },
+			{ code: 'Range(0)', expected: [0] },
+			{ code: 'Range(3)', expected: [0, 1, 2, 3] },
+			{ code: 'Range(2, 5)', expected: [2, 3, 4, 5] },
+			{ code: 'Range(5, 2)', expected: [] },
+			{ code: 'Slice([1,2,3,4,5], 1, 3)', expected: ["2", "3"] },
+			{ code: 'Slice([1,2,3,4,5], 2)', expected: ["3", "4", "5"] },
+			{ code: 'Slice("Hello", 1, 3)', expected: "el" },
 			{ code: 'Join([1,2,3], "-")', expected: "1-2-3" },
 			{ code: 'Join(["a","b","c"], "")', expected: "abc" },
-			//{ code: 'Flatten([1,[2,3],[4,[5]]])', expected: ["1", "2", "3", "4", ["5"]] },
-			//{ code: 'Push([1,2], 3)', expected: ["1", "2", "3"] },
+			{ code: 'Flatten([1,[2,3],[4,[5]]])', expected: ["1", "2", "3", "4", ["5"]] },
+			{ code: 'Push([1,2], 3)', expected: ["1", "2", "3"] },
 			{ code: 'Push("ab", "c")', expected: "abc" },
 			{ code: 'Count([1,2,3])', expected: 3 },
 			{ code: 'Count("hello")', expected: 5 },
@@ -1706,21 +1725,21 @@ class ASTExecutor {
 			{ code: 'MaxIndex([1,2,3])', expected: 2 },
 			{ code: 'MaxIndex("hello")', expected: 4 },
 			{ code: 'MaxIndex([])', expected: -1 },
-			//{ code: 'Keys({"a":"1","b":"2"})', expected: ["a", "b"] },
-			//{ code: 'Values({"a":"1","b":"2"})', expected: ["1", "2"] },
-			//{ code: 'Keys([1,2,3])', expected: ["0", "1", "2"] },
-			//{ code: 'Sort([3,1,2])', expected: ["1", "2", "3"] },
-			//{ code: 'Sort([3,1,2], "D")', expected: ["3", "2", "1"] },
-			//{ code: 'Sort(["banana","apple","cherry"])', expected: ["apple", "banana", "cherry"] },
-			//{ code: 'Unique([1,1,2,2,3])', expected: ["1", "2", "3"] },
-			//{ code: 'Unique(["a","a","b"])', expected: ["a", "b"] },
+			{ code: 'Keys({"a":"1","b":"2"})', expected: ["a", "b"] },
+			{ code: 'Values({"a":"1","b":"2"})', expected: ["1", "2"] },
+			{ code: 'Keys([1,2,3])', expected: ["0", "1", "2"] },
+			{ code: 'Sort([3,1,2])', expected: ["1", "2", "3"] },
+			{ code: 'Sort([3,1,2], "D")', expected: ["3", "2", "1"] },
+			{ code: 'Sort(["banana","apple","cherry"])', expected: ["apple", "banana", "cherry"] },
+			{ code: 'Unique([1,1,2,2,3])', expected: ["1", "2", "3"] },
+			{ code: 'Unique(["a","a","b"])', expected: ["a", "b"] },
 			{ code: 'Repl("Hello", "l", "L")', expected: "HeLlo" },
 			{ code: 'Repl("aaa", "a", "b")', expected: "baa" },
-			//{ code: 'StrSplit("a,b,c", ",")', expected: ["a", "b", "c"] },
-			//{ code: 'StrSplit("a-b-c", "-")', expected: ["a", "b", "c"] },
-			{ code: 'Justify("Hi", 1, 5)', expected: "Hi" },
-			{ code: 'Justify("Hi", 3, 5)', expected: "Hi" },
-			{ code: 'Justify("Hi", 2, 6)', expected: "Hi" },
+			{ code: 'StrSplit("a,b,c", ",")', expected: ["a", "b", "c"] },
+			{ code: 'StrSplit("a-b-c", "-")', expected: ["a", "b", "c"] },
+			{ code: 'Justify("Hi", 1, 5)', expected: "Hi   " }, // was "Hi" (unpadded) - only "passed" because the type-mismatched switch was a no-op
+			{ code: 'Justify("Hi", 3, 5)', expected: "   Hi" }, // was "Hi", same reason
+			{ code: 'Justify("Hi", 2, 6)', expected: "  Hi  " }, // was "Hi", same reason
 			{ code: 'StrClean("  a   b  ", 1+0)', expected: "a b" },
 			{ code: 'StrClean("  a   b  ", 2+0)', expected: "a b" },
 			{ code: 'StrClean("  a   b  ", 3+0)', expected: "ab" },
@@ -1728,21 +1747,38 @@ class ASTExecutor {
 			{ code: 'Exec("return 6 * 9")', expected: 54 },
 			{ code: 'Contains("hello world", "world")', expected: 1 },
 			{ code: 'StartsWith("HELLO", "HE")', expected: 1 },
-			//{ code: 'Tan(3.14159 / 4)', expected: 1 },
-			//{ code: 'CoTan(3.14159 / 4)', expected: 1 },
-			//{ code: 'Rand(100)', expected: undefined },
-			//{ code: 'Dice(6)', expected: undefined },
-			//{ code: 'Rem("Hello", "e")', expected: [ { match: 'e', pos: 1 } ] },
-			//{ code: 'Repl("Hello", "l", "x")', expected: 'Hexxo' },
-			//{ code: 'Grep("Hello", "e")', expected: 1 },
-			//{ code: 'StrSplit("Hello,World", ",")', expected: true },
-			//{ code: 'Justify("Hello", "left", 10)', expected: 'Hello     ' },
-			//{ code: 'StrClean("  Hello  ")', expected: 'Hello' },
+			{ code: 'Tan(3.14159 / 4)', expected: 0.9999986732059836 }, // was `expected: 1` - close to but not exactly 1, since 3.14159/4 isn't precisely pi/4
+			{ code: 'CoTan(30)', expected: 1.7320508075688774 }, // was `CoTan(3.14159 / 4)` expected 1 - Cotan takes degrees only (see Cotan(45) above), so that call was feeding it a radian value by mistake
+			{ code: 'isNum(Rand(100))', expected: 1 }, // Rand is non-deterministic, so just check it returns a number
+			{ code: 'isNum(Dice(6))', expected: 1 }, // same - Dice is non-deterministic
+			{ code: 'Rem("Hello", "e")', expected: [ { match: 'e', pos: 1 } ] },
+			{ code: 'Repl("Hello", "l", "x")', expected: 'Hexlo' }, // was `expected: 'Hexxo'` - Repl only replaces the first match (see Repl("Hello","l","L") above)
+			{ code: 'Grep("e", "Hello")', expected: ["Hello"] }, // was `Grep("Hello", "e")` expected 1 - args were the wrong way round (Grep(pattern, text)) and 1 isn't a possible return value (Grep returns matching lines)
+			{ code: 'StrSplit("Hello,World", ",")', expected: ["Hello", "World"] }, // was `expected: true`, which an array could never equal
+			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // was `Justify("Hello", "left", 10)` - the justify type is numeric (1/2/3), not the string "left"
+			{ code: 'StrClean("  Hello  ", 1+0)', expected: 'Hello' }, // was missing its required cleaning-level argument
 		];
+		// Strict === can never match two separately-built arrays/objects even
+		// when their contents are identical, which is why every array- or
+		// object-returning assertion below used to be commented out as
+		// "faulty" - they were actually passing, the comparison just couldn't
+		// see it. This does a structural comparison instead.
+		const deepEqual = (a, b) => {
+			if (a === b) return true;
+			if (Array.isArray(a) && Array.isArray(b)) {
+				return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+			}
+			if (a && b && typeof a === 'object' && typeof b === 'object') {
+				const aKeys = Object.keys(a);
+				const bKeys = Object.keys(b);
+				return aKeys.length === bKeys.length && aKeys.every(k => deepEqual(a[k], b[k]));
+			}
+			return false;
+		};
 		const assert = async (assertions) => {
 			for (const { code, expected } of assertions) {
 				const result = await this.assert_code(code);
-				const isSuccess = result === expected;
+				const isSuccess = deepEqual(result, expected);
 				if (!isSuccess) {
 					console.log(chalk.red(`Assertion failed: ${code}`));
 					console.log(chalk.yellow(`Expected: ${expected}`));
@@ -2503,7 +2539,12 @@ class ASTExecutor {
 	async INTERNAL_Cos(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
-		return Math.cos(this.Core(value[0]));
+		// Core() floors non-integer numbers via digest() - fine for literals
+		// (which arrive here as strings and take a different path through
+		// Core), but it silently zeroes out any computed value like `x / 4`.
+		// Skip Core() when we already have a real number, same as Sin does.
+		let rawValue = typeof value[0] === "number" ? value[0] : this.Core(value[0]);
+		return Math.cos(rawValue);
 	}
 	async INTERNAL_Ticks(ast) {
 		return performance.now();
@@ -2511,7 +2552,8 @@ class ASTExecutor {
 	async INTERNAL_Tan(ast) {
 		let value = await this.execute_ast(ast);
 		let degrees = value[1] === "D";  // Check if input is in degrees
-		let radians = degrees ? this.Core(value[0]) * (Math.PI / 180) : this.Core(value[0]);  // Convert if in degrees
+		let rawValue = typeof value[0] === "number" ? value[0] : this.Core(value[0]);
+		let radians = degrees ? rawValue * (Math.PI / 180) : rawValue;  // Convert if in degrees
 		return Math.tan(radians);
 	}
 	async INTERNAL_Ceil(ast) {
@@ -2522,6 +2564,9 @@ class ASTExecutor {
 	async INTERNAL_Cotan(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
+		// Unlike Tan/Sin/Cos, Cotan has always taken degrees with no radians
+		// option - Cotan(45) === 1 already relies on that. It never called
+		// Core() on the way in, so it never had the flooring bug either.
 		let radians = value[0] * (Math.PI / 180);
 		let result = 1 / Math.tan(radians);
 		let tolerance = 1e-10;
@@ -2655,14 +2700,21 @@ async INTERNAL_Rem(ast) {
 		let string = values[0];
 		let regex = values[1];
 		let replace = values[2];
+		// First-match-only is intentional here (Repl("Hello","l","L") -> "HeLlo"
+		// is an existing, correct assertion below) - Strepl is the all-in-one
+		// literal replace, this one is meant for a single targeted swap.
 		return string.replace(new RegExp(regex), replace);
 	}
 	async INTERNAL_Grep(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let pattern = new RegExp('\\b' + values[0] + '\\b', 'g');
+		// Docs: "returns lines containing P from T" - a substring/pattern
+		// search, not a whole-word match, so no \b boundaries here.
+		let pattern = new RegExp(values[0], 'g');
 		let text = values[1];
-		let lines = text.split('`n');
+		// Was splitting on the literal two characters `n instead of a real
+		// newline, so multi-line text was never actually split into lines.
+		let lines = text.split('\n');
 		let matchedLines = lines.filter(line => line.match(pattern));
 		return matchedLines;
 	}
@@ -2766,10 +2818,13 @@ async INTERNAL_Rem(ast) {
 		return tree;
 	}
 	async INTERNAL_justify(ast) {
-		//this.print(`${this.getFunctionName()}`); // not working properly
+		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
 		let text = values[0];
-		let justifyType = values[1]; // 1 for Left, 2 for Center, 3 for Right
+		// Literals always arrive as strings in this language, but switch/case
+		// uses strict equality, so "1" would never match `case 1` below -
+		// that's what "not working properly" meant. parseInt fixes it.
+		let justifyType = parseInt(values[1]); // 1 for Left, 2 for Center, 3 for Right
 		let width = values[2];
 
 		// Split text into lines
@@ -3163,7 +3218,18 @@ async INTERNAL_IsString(ast) {
 async INTERNAL_IsNum(ast) {
     // Get the value from the AST
     let value = await this.execute_ast(ast);
-    return Number.isInteger(this.Core(value[0])) ? 1 : 0; // Return 1 if it's an integer, 0 otherwise
+    // isNum() means "is this numeric at all" - integer or float. It used to
+    // require Number.isInteger() on top, which made it really "isInt" in
+    // disguise and meant a perfectly good number like "5.5" reported as 0.
+    // isNaN() coerces the same way Core()'s own string branch does, so this
+    // keeps the existing edge cases (e.g. isNum("") === 1) intact.
+    return !isNaN(value[0]) ? 1 : 0; // Return 1 if it's a number (int or float), 0 otherwise
+}
+async INTERNAL_IsInt(ast) {
+    // Get the value from the AST
+    let value = await this.execute_ast(ast);
+    // The integer-only check isNum() used to do, now under its own name.
+    return !isNaN(value[0]) && Number.isInteger(parseFloat(value[0])) ? 1 : 0; // Return 1 if it's a whole number, 0 otherwise
 }
 async INTERNAL_Range(ast) {
     // Get the value(s) from the AST
@@ -3191,7 +3257,11 @@ async INTERNAL_Range(ast) {
 async INTERNAL_IsFloat(ast) {
     // Get the value from the AST
     let value = await this.execute_ast(ast);
-    let num = parseFloat(this.Core(value[0]));
+    // Core() runs values through digest(), which floors floats on its way
+    // through - fine for most uses, but it means every non-integer would
+    // look like an integer by the time we got to check it. parseFloat()
+    // works directly on both real numbers and numeric strings, so skip Core().
+    let num = parseFloat(value[0]);
     return !Number.isNaN(num) && !Number.isInteger(num) ? 1 : 0; // Return 1 if it's a float, 0 otherwise
 }
 
@@ -3521,7 +3591,8 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'StrLen 		'	,	'S'         ,	'> [num] Length of string', 
 			 '✓'  	,	'range	 		'	,	'N [,E]'    ,	'> [arr] Returns array between 0 and N [or N to E (optional)]', 
 			 '✓'   	,	'isString  		'	,	'S'         ,	'> [num] returns 1 or 0 if N is String',    
-			 '✓'   	,	'isNum   		'	,	'N'         ,	'> [num] returns 1 or 0 if N is a number',    
+			 '✓'   	,	'isNum   		'	,	'N'         ,	'> [num] returns 1 or 0 if N is a number (int or float)',    
+			 '✓'   	,	'isInt   		'	,	'N'         ,	'> [num] returns 1 or 0 if N is a whole number',    
 			 '✓'   	,	'isFloat   		'	,	'N'         ,	'> [num] returns 1 or 0 if N is float',    
 			 '✓'   	,	'isArray   		'	,	'N'         ,	'> [num] returns 1 or 0 if N is array',    
 			 '✓'   	,	'isObject  		'	,	'N'         ,	'> [num] returns 1 or 0 if N is object',    
@@ -3899,6 +3970,6 @@ const r = parser.parse();
 console.timeEnd();
 console.log(r)
 console.log(print_Coyote_tree(r));
-fs.writeFileSync('outputwwww.txt', JSON.stringify(r, null, 2));
+fs.writeFileSync('output.txt', JSON.stringify(r, null, 2));
 const executer = new ASTExecutor()
 executer.run(r)
