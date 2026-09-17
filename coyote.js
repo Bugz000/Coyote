@@ -1323,7 +1323,23 @@ class ASTExecutor {
 		// asserts run in their own scope. they fire off unawaited from the
 		// constructor so they'd otherwise be writing vars and flags into the
 		// same scope the script is busy using
-		return (await this.spawn().execute_ast((await this.make_ast(ast))['statements'][0]))
+		const statements = (await this.make_ast(ast))['statements']
+		if (statements.length === 1) {
+			return (await this.spawn().execute_ast(statements[0]))
+		}
+		// multi-line assertions: run every statement in one shared scope so
+		// earlier assignments are visible further down (var := 123 \n print(var)),
+		// and capture print() output so it can be asserted on directly
+		const printed = []
+		const realLog = console.log
+		console.log = (...args) => printed.push(args.join(' '))
+		let result
+		try {
+			result = await this.spawn().execute_ast(statements)
+		} finally {
+			console.log = realLog
+		}
+		return printed.length ? printed.join('\n') : result[result.length - 1]
 	}
 	async verifyInternalFunctions() {
 		//UNIT TESTS
@@ -1711,6 +1727,7 @@ class ASTExecutor {
 			{ code: 'StrSplit("Hello,World", ",")', expected: ["Hello", "World"] }, // was `expected: true`, which an array could never equal
 			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // was `Justify("Hello", "left", 10)` - the justify type is numeric (1/2/3), not the string "left"
 			{ code: 'StrClean("  Hello  ", 1+0)', expected: 'Hello' }, // was missing its required cleaning-level argument
+			{ code: 'var := 123\nprint(var)', expected: '123' }, // multi-line: assignment in one statement, read back and printed in the next
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or

@@ -11,7 +11,13 @@
 
 ## ⚡ What is Coyote?
 
-**Coyote** is a next-generation dynamically-typed, high-inference scripting language designed from the ground up for maximum developer expressiveness. Whether you are manipulating text, crunching statistics, building retro terminal GUIs (TUIs), or embedding an agile macro engine inside your Node.js apps—**Coyote figures out what you mean so you write less code.**
+**Coyote**  We've all been there - you're working on a project you're 42 layers deep into the stack, and you find yourself manually editing 24000 files to repair an issue, spending the whole time debating whether it's worth making a one-time script for it... you give in, start making a tool, while desperately trying to maintain the concepts in your mind from your initial task, you do a dry test-run, it's all wrong, now you need to debug 8 stupid issues, because you weren't concentrating when you made it, finally once working, you run it, fix 24,000 files and you realise you've totally, completely forgotten what you were doing before.
+This is what Coyote fixes.
+a nextgen ultra high inferrence scripting language, with it's own brain to INFER what you wanted, so you can stay focused on your original task 
+it is not a speed-demon hyper-secure flagship language, it is a scripting tool designed to aid your use of a flagship Language
+these one-time scripts can be coded in seconds, coyote can in some cases directly run pseudocode 
+this is the design principle 
+you just say "i want THIS, THERE" - it cares not for salt or syntax, it understands, and it executes.
 
 ```
                /\
