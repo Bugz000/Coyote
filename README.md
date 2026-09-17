@@ -16,9 +16,13 @@
 This is what Coyote fixes.
 
 a nextgen ultra high inferrence scripting language, with it's own brain to INFER what you wanted, so you can stay focused on your original task 
+
 it is not a speed-demon hyper-secure flagship language, it is a scripting tool designed to aid your use of a flagship Language
+
 these one-time scripts can be coded in seconds, coyote can in some cases directly run pseudocode 
+
 this is the design principle 
+
 you just say "i want THIS, THERE" - it cares not for salt or syntax, it understands, and it executes.
 
 ```
