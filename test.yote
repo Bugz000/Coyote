@@ -37,6 +37,12 @@ Loop (50) {
     Sleep(30)
 }
 
+PrintScript("script.txt")
+PrintAST("ast.txt")
+clear()
+PrintAST()
+DumpRAM("ram.txt")
+
 ProjX(x, y, z, a, b, scl, width) {
     yR := y * Cos(a) - z * Sin(a)
     zR := y * Sin(a) + z * Cos(a)

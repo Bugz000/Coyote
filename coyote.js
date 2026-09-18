@@ -3757,6 +3757,70 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'Tree			'	,	'V'		,	'> [|||] prints the pending AST behind a var'
 			])], 3));
 	}
+	async INTERNAL_PrintScript(ast) {
+		// dumps the raw source text of the running script - straight from
+		// the same fileContent the parser was built from. optional 1st
+		// arg is a destination path; omit it to print to console instead
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, fileContent, 'utf8');
+				return `Script written to: ${dest}`;
+			} catch (err) {
+				return `Error writing script: ${err.message}`;
+			}
+		}
+		console.log(fileContent);
+		return "";
+	}
+	async INTERNAL_PrintAST(ast) {
+		// dumps the parsed AST for the running script - the same tree
+		// print() run() already shows at startup, plus the full JSON.
+		// optional 1st arg is a destination path; omit it for console
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, text, 'utf8');
+				return `AST written to: ${dest}`;
+			} catch (err) {
+				return `Error writing AST: ${err.message}`;
+			}
+		}
+		console.log(print_Coyote_tree(r));
+		console.log(r);
+		return "";
+	}
+	async INTERNAL_DumpRAM(ast) {
+		// snapshot of the node process's own memory (rss/heap/external)
+		// plus the interpreter's live variable stack from this scope on
+		// down. optional 1st arg is a destination path; omit for console
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		let mem = process.memoryUsage();
+		let toMB = n => (n / 1024 / 1024).toFixed(2) + ' MB';
+		let report = {
+			rss: toMB(mem.rss),
+			heapTotal: toMB(mem.heapTotal),
+			heapUsed: toMB(mem.heapUsed),
+			external: toMB(mem.external),
+			arrayBuffers: toMB(mem.arrayBuffers),
+			vars: this.dump()
+		};
+		let text = JSON.stringify(report, null, 2);
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, text, 'utf8');
+				return `RAM dump written to: ${dest}`;
+			} catch (err) {
+				return `Error writing RAM dump: ${err.message}`;
+			}
+		}
+		console.log(text);
+		return "";
+	}
 	generateFuncs(arr) {
 		let numColumns = 4
 		const rows = [];
