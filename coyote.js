@@ -596,10 +596,50 @@ class CoyoteParser extends Parser {
 	parse_expression() {
 		// this.log('parse_expression');
 		this.scan(WHITESPACE);
+		// var := expr showing up mid-expression (function params, array
+		// items, etc) used to just blow up the parser. try it as an
+		// assignment first and fall through to the normal expression
+		// chain if there's no ':=' waiting after the variable
+		const assign = this.parse_expression_assignment();
+		if (assign.found()) {
+			return assign;
+		}
 		const expr = this.parse_binary_op(0);
 		this.scan(WHITESPACE);
 		//console.log(expr)
 		return expr;
+	}
+	parse_expression_assignment() {
+		const lookahead_parser = this.copy();
+		const varname = lookahead_parser.scan(VARIABLE);
+		if (varname.not_found()) {
+			return this.not_found();
+		}
+		let left = {
+			type: ItemType.VARIABLE,
+			name: varname.get()
+		};
+		while (true) {
+			let member = lookahead_parser.parse_member_access_expression();
+			if (member.not_found()) {
+				break;
+			}
+			left = {
+				type: ItemType.MEMBER_ACCESS,
+				value: left,
+				member: member.get()
+			};
+		}
+		lookahead_parser.scan(WHITESPACE);
+		if (lookahead_parser.scan(OPERATOR_ASSIGN).not_found()) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		return this.found({
+			type: ItemType.ASSIGNMENT,
+			left,
+			right: this.parse_expression().or_else_throw(`Expected expression after ':='`),
+		});
 	}
 	parse_binary_op(op_index) {
 		const has_ops_left = op_index < BINARY_OP_PRECEDENCE.length;
@@ -1155,6 +1195,20 @@ function convert_expression(e) {
 			name: chalk.cyanBright('VAR') + ' ' + e.name
 		};
 	}
+	if (e.type === ItemType.ASSIGNMENT) {
+		// assignments can live inline now (buf := SubStr(..., pos := ...))
+		// so the tree needs to be able to draw one same as convert_statement does
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [{
+				name: chalk.gray('left'),
+				children: [convert_expression(e.left)]
+			}, {
+				name: chalk.gray('right'),
+				children: [convert_expression(e.right)]
+			}, ],
+		};
+	}
 	if (e.type === ItemType.FUNCTION_CALL) {
 		return {
 			name: chalk.cyanBright(ItemType[e.type]),
@@ -1455,7 +1509,6 @@ class ASTExecutor {
 			{ code: 'Avg([2,4,6])', expected: 4 },
 			{ code: 'Json({"a": "1"})', expected: '{"a":"1"}' },
 			{ code: 'Exec("return 6 * 7")', expected: 42 },
-			// ---- expanded coverage below: broad happy-path + edge-case sweep across every pure INTERNAL_ function ----
 			{ code: 'Round(0)', expected: 0 },
 			{ code: 'Round(0.5)', expected: 1 },
 			{ code: 'Round(0.4)', expected: 0 },
@@ -1565,6 +1618,10 @@ class ASTExecutor {
 			{ code: 'Substr("Hello", 0, 0)', expected: "" },
 			{ code: 'Substr("Hello", 10, 5)', expected: "" },
 			{ code: 'Substr("Hello", 2)', expected: "llo" },
+			{ code: 'Substr("48", 1)', expected: "8" }, // all-digit string - Core() used to coerce this straight to a number and drop .substring
+			{ code: 'Substr("48", 1, 1)', expected: "8" },
+			{ code: 'Substr("12345", 0, 3)', expected: "123" },
+			{ code: 'Substr("007", 1)', expected: "07" },
 			{ code: 'Asc("Z")', expected: 90 },
 			{ code: 'Asc("0")', expected: 48 },
 			{ code: 'Asc(" ")', expected: 32 },
@@ -1902,6 +1959,10 @@ class ASTExecutor {
 			{ code: 'IsEmpty([])', expected: 1 },
 			{ code: 'IsEmpty([1])', expected: 0 },
 			{ code: 'IsEmpty({"a":"1"})', expected: 0 }, // can't test the true empty-object case - {} itself doesn't parse in this language
+			{ code: 'b := (c := 10) + 1\nprint(b)\nprint(c)', expected: '11\n10' }, // assignment as an expression - the outer read gets the value, and the inline var sticks around too
+			{ code: 'Double(n) { return n * 2 }\nprint(Double(d := 7))\nprint(d)', expected: '14\n7' },
+			{ code: 'buf := "................"\nprint(SubStr(buf, 1, pos := 5))\nprint(pos)', expected: '.....\n5' },
+			{ code: 'arr := [1,2,3]\nIdent(n) { return n }\nprint(Ident(arr[0] := 99))\nprint(arr[0])', expected: '99\n99' }, // member-access targets inline too, not just plain vars
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or
@@ -2480,9 +2541,13 @@ class ASTExecutor {
 			if (target.name !== null) {
 				this.set(target.name, value, target.path);
 			}
+			// used inline (eg as a function param) the assignment needs to
+			// hand back what it just set, same as the var would read back
+			return value;
 		} else if (leftType === "VARIABLE") {
 			const value = await this.execute_ast(ast.right);
 			this.set(ast.left.name, value);
+			return value;
 		}
 	}
 	async object(ast) { // 27
@@ -2608,10 +2673,16 @@ class ASTExecutor {
 	async INTERNAL_print(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
-		if (typeof value[0] === 'string') {
-			console.log(value[0].replace(/`n/g, '\n'));
+		let out = value[0];
+		// print(array) was dumping raw node inspect output ("[ '1', '2' ]")
+		// instead of just laying the values out like everything else does
+		if (Array.isArray(out)) {
+			out = out.join(",");
+		}
+		if (typeof out === 'string') {
+			console.log(out.replace(/`n/g, '\n'));
 		} else {
-			console.log(value[0]);
+			console.log(out);
 		}
 	}
 	async INTERNAL_Cell(ast) {
@@ -2750,7 +2821,11 @@ class ASTExecutor {
 	async INTERNAL_Substr(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = this.Core(values[0])
+		// was running the string through Core() same as start/length -
+		// fine until the string itself was all digits ("48"), Core()
+		// coerced it straight to a number and .substring wasn't a thing
+		// anymore. it just needs to stay a string.
+		let string = String(values[0])
 		let start =  this.Core(values[1])
 		let length = values.length >= 3 ?  this.Core(values[2]) : string.length - start;
 		return string.substring(start, start + length);

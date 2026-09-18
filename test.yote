@@ -1,15 +1,16 @@
-A := 0 , B := 0
-V := [[-12,-12,-12],[12,-12,-12],[12,12,-12],[-12,12,-12],[-12,-12,12],[12,-12,12],[12,12,12],[-12,12,12]],E := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
+A := 0 , B := 0,V := [[-12,-12,-12],[12,-12,-12],[12,12,-12],[-12,12,-12],[-12,-12,12],[12,-12,12],[12,12,12],[-12,12,12]],E := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
 Loop (250) {
-    P := []
+    cA := Cos(A), sA := Sin(A), cB := Cos(B), sB := Sin(B), P := []
     Loop (V)
-        P := Push(P, [Round(24 + (A_Val[0] * Cos(B) + (A_Val[1] * Sin(A) + A_Val[2] * Cos(A)) * Sin(B)) * 0.95), Round(11 + (A_Val[1] * Cos(A) - A_Val[2] * Sin(A)) * 0.45)])
+        P := Push(P, [Round(24 + (A_Val[0] * cB + (A_Val[1] * sA + A_Val[2] * cA) * sB) * 0.95), Round(11 + (A_Val[1] * cA - A_Val[2] * sA) * 0.45)])
     buf := StrSplit(Repeat(" ", 1056), "")
-    Loop (E)
-        Loop (Max(Max(Abs(P[A_Val[1]][0] - P[A_Val[0]][0]), Abs(P[A_Val[1]][1] - P[A_Val[0]][1])), 1) + 1)
-            buf[Round(P[A_Val[0]][1] + (P[A_Val[1]][1] - P[A_Val[0]][1]) * (A_index-1) / Max(Max(Abs(P[A_Val[1]][0] - P[A_Val[0]][0]), Abs(P[A_Val[1]][1] - P[A_Val[0]][1])), 1)) * 48 + Round(P[A_Val[0]][0] + (P[A_Val[1]][0] - P[A_Val[0]][0]) * (A_index-1) / Max(Max(Abs(P[A_Val[1]][0] - P[A_Val[0]][0]), Abs(P[A_Val[1]][1] - P[A_Val[0]][1])), 1))] := "#"
+    Loop (E) {
+        p0 := P[A_Val[0]], p1 := P[A_Val[1]], dx := p1[0] - p0[0], dy := p1[1] - p0[1], s := Max(Abs(dx), Abs(dy), 1)
+        Loop (s + 1)
+            buf[Round(p0[1] + dy * (A_index-1) / s) * 48 + Round(p0[0] + dx * (A_index-1) / s)] := "#"
+    }
     Clear()
     Loop (22)
         Print(Join(Slice(buf, (A_index-1) * 48, A_index * 48), ""))
-    A := A + 0.08,	B := B + 0.12
+    A := A + 0.08, B := B + 0.12
 }
