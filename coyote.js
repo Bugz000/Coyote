@@ -932,6 +932,13 @@ class CoyoteParser extends Parser {
 	parse_eol() {
 		this.scan(WHITESPACE);
 		this.scan(LINE_COMMENT);
+		// comma-separated statements on one line: var := 5, var2 := 10, var3 := 30
+		// reuses the same OPERATOR_COMMA token every other comma-separated
+		// list (params, arrays, objects) already scans - no new token added
+		if (this.scan(OPERATOR_COMMA).found()) {
+			this.scan(WHITESPACE);
+			this.scan(LINE_COMMENT);
+		}
 		this.scan(NEWLINE);
 	}
 	copy() {
@@ -1827,6 +1834,20 @@ class ASTExecutor {
 			{ code: 'Sleep(0)', expected: true },
 			{ code: 'Purge([1, "", 2, 0, 3])', expected: ["1", "2", "0", "3"] }, // only the empty string gets dropped
 			{ code: 'Purge({"a": "", "b": "1"})', expected: { b: '1' } },
+
+			// comma-separated statements on one line: var := 5, var2 := 10, var3 := 30
+			{ code: 'var := 5, var2 := 10, var3 := 30\nprint(var + var2 + var3)', expected: '45' },
+			{ code: 'x := 1, y := 2\nprint(x)', expected: '1' }, // only the first of a comma-chain should bind here
+			{ code: 'x := 1, y := 2\nprint(y)', expected: '2' },
+			{ code: 'x := 1,\ny := 2\nprint(x + y)', expected: '3' }, // trailing comma followed by a real newline
+			{ code: 'x := 1 , y := 2\nprint(x+y)', expected: '3' }, // whitespace around the comma
+			{ code: 'x := 1, y := 2, z := 3\nif (x == 1) { print("yes") }\nprint(y + z)', expected: 'yes\n5' }, // comma-chain followed by unrelated statements still parses fine
+			{ code: 'x := 0\nloop (3) { x := x + 1, print(x) }', expected: '1\n2\n3' }, // comma-chain works inside a block, not just top-level
+			// comma still means what it always meant everywhere else - params, arrays, objects, defaults
+			{ code: 'add(a, b) { return a + b }\nprint(add(3, 4))', expected: '7' },
+			{ code: 'arr := [1, 2, 3]\nprint(Sum(arr))', expected: '6' },
+			{ code: 'obj := {"a": "1", "b": "2"}\nprint(obj.a . obj.b)', expected: '12' },
+			{ code: 'greet(name := "World") { return "Hello " . name }\nprint(greet())', expected: 'Hello World' },
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or
@@ -3642,6 +3663,70 @@ async INTERNAL_IsFloat(ast) {
 	async INTERNAL_scope() {
 		//this.print(`${this.getFunctionName()}`);
 		console.log(this.scope())
+	}
+	async INTERNAL_PrintScript(ast) {
+		// dumps the raw source text of the running script - straight from
+		// the same fileContent the parser was built from. optional 1st
+		// arg is a destination path; omit it to print to console instead
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, fileContent, 'utf8');
+				return `Script written to: ${dest}`;
+			} catch (err) {
+				return `Error writing script: ${err.message}`;
+			}
+		}
+		console.log(fileContent);
+		return "";
+	}
+	async INTERNAL_PrintAST(ast) {
+		// dumps the parsed AST for the running script - the same tree
+		// print() run() already shows at startup, plus the full JSON.
+		// optional 1st arg is a destination path; omit it for console
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, text, 'utf8');
+				return `AST written to: ${dest}`;
+			} catch (err) {
+				return `Error writing AST: ${err.message}`;
+			}
+		}
+		console.log(print_Coyote_tree(r));
+		console.log(r);
+		return "";
+	}
+	async INTERNAL_DumpRAM(ast) {
+		// snapshot of the node process's own memory (rss/heap/external)
+		// plus the interpreter's live variable stack from this scope on
+		// down. optional 1st arg is a destination path; omit for console
+		let values = await this.execute_ast(ast);
+		let dest = values.length ? String(values[0]) : null;
+		let mem = process.memoryUsage();
+		let toMB = n => (n / 1024 / 1024).toFixed(2) + ' MB';
+		let report = {
+			rss: toMB(mem.rss),
+			heapTotal: toMB(mem.heapTotal),
+			heapUsed: toMB(mem.heapUsed),
+			external: toMB(mem.external),
+			arrayBuffers: toMB(mem.arrayBuffers),
+			vars: this.dump()
+		};
+		let text = JSON.stringify(report, null, 2);
+		if (dest) {
+			try {
+				fs.writeFileSync(dest, text, 'utf8');
+				return `RAM dump written to: ${dest}`;
+			} catch (err) {
+				return `Error writing RAM dump: ${err.message}`;
+			}
+		}
+		console.log(text);
+		return "";
 	}
 	async INTERNAL_funcs() {
 		
