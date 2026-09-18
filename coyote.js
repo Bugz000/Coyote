@@ -1330,12 +1330,20 @@ class ASTExecutor {
 		// multi-line assertions: run every statement in one shared scope so
 		// earlier assignments are visible further down (var := 123 \n print(var)),
 		// and capture print() output so it can be asserted on directly
+		const scope = this.spawn()
+		// same pre-scan run() does for a real script, so a function defined
+		// earlier in the snippet can be called later in the same snippet
+		statements.forEach(statement => {
+			if (statement.type === 4) {
+				scope.functions[statement.name] = statement
+			}
+		})
 		const printed = []
 		const realLog = console.log
 		console.log = (...args) => printed.push(args.join(' '))
 		let result
 		try {
-			result = await this.spawn().execute_ast(statements)
+			result = await scope.execute_ast(statements)
 		} finally {
 			console.log = realLog
 		}
@@ -1728,6 +1736,97 @@ class ASTExecutor {
 			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // was `Justify("Hello", "left", 10)` - the justify type is numeric (1/2/3), not the string "left"
 			{ code: 'StrClean("  Hello  ", 1+0)', expected: 'Hello' }, // was missing its required cleaning-level argument
 			{ code: 'var := 123\nprint(var)', expected: '123' }, // multi-line: assignment in one statement, read back and printed in the next
+
+			// operators
+			{ code: 'x := 1 + 2\nprint(x)', expected: '3' },
+			{ code: 'x := 2 + 3 * 4\nprint(x)', expected: '14' },
+			{ code: 'x := (2 + 3) * 4\nprint(x)', expected: '20' },
+			{ code: 'x := 10 - 20\nprint(x)', expected: '-10' },
+			{ code: 'x := 3.5 + 1.5\nprint(x)', expected: '5' },
+			{ code: 'x := -5\nprint(x)', expected: '-5' },
+			{ code: 'x := 5 == 5\nprint(x)', expected: 'true' },
+			{ code: 'x := 5 == 6\nprint(x)', expected: 'false' },
+			{ code: 'x := 5 != 6\nprint(x)', expected: 'true' },
+			{ code: 'x := 5 > 3\nprint(x)', expected: 'true' },
+			{ code: 'x := 5 < 3\nprint(x)', expected: 'false' },
+			{ code: 'x := 5 >= 5\nprint(x)', expected: 'true' },
+			{ code: 'x := 5 <= 4\nprint(x)', expected: 'false' },
+			{ code: 'x := "abc" == "abc"\nprint(x)', expected: 'true' },
+			{ code: 'x := "abc" == "abd"\nprint(x)', expected: 'false' },
+			{ code: 'x := 2 & 3 | 4\nprint(x)', expected: '2' },
+			{ code: 'x := "Hello" . " " . "World"\nprint(x)', expected: 'Hello World' },
+			{ code: 'x := "a" "b" "c" "d"\nprint(x)', expected: 'abcd' },
+			{ code: 'x := "a" . 5\nprint(x)', expected: 'a5' },
+			{ code: 'x := 5 . "a"\nprint(x)', expected: '5a' },
+			{ code: 'x := 5\nx++\nprint(x)', expected: '6' },
+			{ code: 'x := 5\nx--\nprint(x)', expected: '4' },
+			{ code: 'x := 5\nx+=3\nprint(x)', expected: '8' },
+			{ code: 'x := 5\nx-=2\nprint(x)', expected: '3' },
+			{ code: 'X := 5\nprint(x)', expected: '5' }, // variable names are case-insensitive
+			{ code: 'x := 5\ny := 10\nz := x + y\nprint(z)', expected: '15' },
+
+			// if/else and loop
+			{ code: 'x := 1\nif (x == 1) { print("one") } else { if (x == 2) { print("two") } else { print("other") } }', expected: 'one' },
+			{ code: 'x := 2\nif (x == 1) { print("one") } else { if (x == 2) { print("two") } else { print("other") } }', expected: 'two' },
+			{ code: 'x := 99\nif (x == 1) { print("one") } else { if (x == 2) { print("two") } else { print("other") } }', expected: 'other' },
+			{ code: 'sum := 0\nloop (10) { sum++ }\nprint(sum)', expected: '10' },
+			{ code: 'result := ""\nloop (3) { result := result . "x" }\nprint(result)', expected: 'xxx' },
+			{ code: 'count := 0\nloop (5) { count++\nif (count == 3) { break } }\nprint(count)', expected: '3' }, // break stops the loop early
+			{ code: 'outer := 0\nloop (3) { inner := 0\nloop (3) { inner++ }\nouter := outer + inner }\nprint(outer)', expected: '9' }, // nested loops
+
+			// arrays and objects
+			{ code: 'arr := [10, 20, 30]\nprint(arr[1])', expected: '20' },
+			{ code: 'arr := [1,[2,3],4]\nprint(arr[1][0])', expected: '2' }, // nested array indexing
+			{ code: 'obj := {"a": "1", "b": "2"}\nprint(obj.a)', expected: '1' },
+			{ code: 'obj := {"a": "1", "b": "2"}\nprint(obj["a"])', expected: '1' },
+			{ code: 'obj := {"a": {"b": "1"}}\nprint(obj.a.b)', expected: '1' }, // nested object dot-chain
+			{ code: 'obj := {"name": "Neo", "age": "30"}\nprint(obj.name . " is " . obj.age)', expected: 'Neo is 30' },
+			{ code: 'x := [1,2,3]\nprint(x.push(4))', expected: '1,2,3,4' }, // method-call sugar for Push
+
+			// functions: definitions, defaults, recursion, combinations
+			{ code: 'add(a, b) { return a + b }\nprint(add(3,4))', expected: '7' },
+			{ code: 'greet(name := "World") { return "Hello " . name }\nprint(greet())', expected: 'Hello World' }, // default parameter
+			{ code: 'greet(name := "World") { return "Hello " . name }\nprint(greet("Claude"))', expected: 'Hello Claude' },
+			{ code: 'fact(n) { if (n <= 1) { return 1 } return n * fact(n - 1) }\nprint(fact(5))', expected: '120' }, // recursion
+			{ code: 'fib(n) { if (n < 2) { return n } return fib(n-1) + fib(n-2) }\nprint(fib(10))', expected: '55' },
+			{ code: 'double(n) { return n * 2 }\ntriple(n) { return n * 3 }\nprint(double(triple(2)))', expected: '12' }, // one function's result fed into another
+			{ code: 'double(n) { return n * 2 }\nprint(Sum([double(1), double(2), double(3)]))', expected: '12' }, // function calls as array elements
+			{ code: 'classify(n) { if (n > 0) { return "positive" }\nif (n < 0) { return "negative" }\nreturn "zero" }\nprint(classify(5))', expected: 'positive' },
+			{ code: 'classify(n) { if (n > 0) { return "positive" }\nif (n < 0) { return "negative" }\nreturn "zero" }\nprint(classify(-5))', expected: 'negative' },
+			{ code: 'classify(n) { if (n > 0) { return "positive" }\nif (n < 0) { return "negative" }\nreturn "zero" }\nprint(classify(0))', expected: 'zero' },
+			{ code: 'sumTo(n) { total := 0\ni := 1\nloop (n) { total := total + i\ni++ }\nreturn total }\nprint(sumTo(5))', expected: '15' }, // function body using its own loop + accumulator
+			{ code: 'greeting(name) { return "Hi " . name . "!" }\nnames := ["Alice","Bob"]\nprint(greeting(names[0]))', expected: 'Hi Alice!' }, // array element fed into a function
+
+			// nested resolution: chains of function calls resolving into each other
+			{ code: 'Sum(Range(1,5))', expected: 15 },
+			{ code: 'Max(Range(1,10))', expected: 10 },
+			{ code: 'Avg(Range(1,5))', expected: 3 },
+			{ code: 'Join(Sort([3,1,2]), ",")', expected: '1,2,3' },
+			{ code: 'Upper(Substr("Hello World", 6, 5))', expected: 'WORLD' },
+			{ code: 'Contains(Lower("HELLO"), "ell")', expected: 1 },
+			{ code: 'StrLen(Trim("  padded  "))', expected: 6 },
+			{ code: 'Reverse(Join([1,2,3], ""))', expected: '321' },
+			{ code: 'Sum(Flatten([[1,2],[3,4]]))', expected: 10 },
+			{ code: 'Count(Unique([1,1,2,2,3,3]))', expected: 3 },
+			{ code: 'ToNum(Substr("abc123", 3, 3))', expected: 123 },
+			{ code: 'Pad(ToString(5), 3, "0", "L")', expected: '005' },
+			{ code: 'isEVEN(Sum([1,2,3]))', expected: 1 },
+			{ code: 'Type(ToNum("5"))', expected: 'int' },
+			{ code: 'Sort(Keys({"b":"2","a":"1"}))', expected: ["a", "b"] },
+			{ code: 'Round(Sqrt(50))', expected: 7 },
+			{ code: 'Abs(Invert(5))', expected: 5 },
+			{ code: 'Reverse(Upper("abc"))', expected: 'CBA' },
+			{ code: 'Sort(Unique([3,1,2,1,3]))', expected: ["1", "2", "3"] },
+			{ code: 'nums := [5,3,8,1,9]\nprint(Max(nums) - Min(nums))', expected: '8' },
+
+			// values that couldn't be checked with a fixed expected result before multi-line + print existed
+			{ code: 'isNum(Ticks())', expected: 1 }, // Ticks is a live counter, so just check it's a number
+			{ code: 'isNum(Now())', expected: 1 }, // Now is the current timestamp, so just check it's a number
+			{ code: 'Date(0)', expected: '1970-01-01T00:00:00.000Z' },
+			{ code: 'Env("DEFINITELY_NOT_A_REAL_ENV_VAR_XYZ123")', expected: '' },
+			{ code: 'Sleep(0)', expected: true },
+			{ code: 'Purge([1, "", 2, 0, 3])', expected: ["1", "2", "0", "3"] }, // only the empty string gets dropped
+			{ code: 'Purge({"a": "", "b": "1"})', expected: { b: '1' } },
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or
