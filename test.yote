@@ -13,6 +13,3 @@ Loop (250) {
         Print(Join(Slice(buf, (A_index-1) * 48, A_index * 48), ""))
     A := A + 0.08,	B := B + 0.12
 }
-
-PrintAST("ast.txt")
-funcs()
