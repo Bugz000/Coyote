@@ -289,7 +289,2172 @@ node script.js script.yote
 ```
 
 ---
+```yaml
+├─ASSIGNMENT
+│ ├─left
+│ │ └─VAR A
+│ └─right
+│   └─0
+├─ASSIGNMENT
+│ ├─left
+│ │ └─VAR B
+│ └─right
+│   └─0
+├─ASSIGNMENT
+│ ├─left
+│ │ └─VAR V
+│ └─right
+│   └─ARRAY
+│     ├─ARRAY
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ └─SUB
+│     │   ├─0
+│     │   └─12
+│     ├─ARRAY
+│     │ ├─12
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ └─SUB
+│     │   ├─0
+│     │   └─12
+│     ├─ARRAY
+│     │ ├─12
+│     │ ├─12
+│     │ └─SUB
+│     │   ├─0
+│     │   └─12
+│     ├─ARRAY
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ ├─12
+│     │ └─SUB
+│     │   ├─0
+│     │   └─12
+│     ├─ARRAY
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ └─12
+│     ├─ARRAY
+│     │ ├─12
+│     │ ├─SUB
+│     │ │ ├─0
+│     │ │ └─12
+│     │ └─12
+│     ├─ARRAY
+│     │ ├─12
+│     │ ├─12
+│     │ └─12
+│     └─ARRAY
+│       ├─SUB
+│       │ ├─0
+│       │ └─12
+│       ├─12
+│       └─12
+├─ASSIGNMENT
+│ ├─left
+│ │ └─VAR E
+│ └─right
+│   └─ARRAY
+│     ├─ARRAY
+│     │ ├─0
+│     │ └─1
+│     ├─ARRAY
+│     │ ├─1
+│     │ └─2
+│     ├─ARRAY
+│     │ ├─2
+│     │ └─3
+│     ├─ARRAY
+│     │ ├─3
+│     │ └─0
+│     ├─ARRAY
+│     │ ├─4
+│     │ └─5
+│     ├─ARRAY
+│     │ ├─5
+│     │ └─6
+│     ├─ARRAY
+│     │ ├─6
+│     │ └─7
+│     ├─ARRAY
+│     │ ├─7
+│     │ └─4
+│     ├─ARRAY
+│     │ ├─0
+│     │ └─4
+│     ├─ARRAY
+│     │ ├─1
+│     │ └─5
+│     ├─ARRAY
+│     │ ├─2
+│     │ └─6
+│     └─ARRAY
+│       ├─3
+│       └─7
+├─LOOP
+│ ├─count
+│ │ └─250
+│ └─statements
+│   ├─ASSIGNMENT
+│   │ ├─left
+│   │ │ └─VAR P
+│   │ └─right
+│   │   └─ARRAY
+│   ├─LOOP
+│   │ ├─count
+│   │ │ └─VAR V
+│   │ └─statements
+│   │   └─ASSIGNMENT
+│   │     ├─left
+│   │     │ └─VAR P
+│   │     └─right
+│   │       └─FUNCTION_CALL
+│   │         ├─name Push
+│   │         └─params
+│   │           ├─VAR P
+│   │           └─ARRAY
+│   │             ├─FUNCTION_CALL
+│   │             │ ├─name Round
+│   │             │ └─params
+│   │             │   └─ADD
+│   │             │     ├─24
+│   │             │     └─MUL
+│   │             │       ├─ADD
+│   │             │       │ ├─MUL
+│   │             │       │ │ ├─MEMBER_ACCESS
+│   │             │       │ │ │ ├─value
+│   │             │       │ │ │ │ └─VAR A_Val
+│   │             │       │ │ │ └─member
+│   │             │       │ │ │   └─0
+│   │             │       │ │ └─FUNCTION_CALL
+│   │             │       │ │   ├─name Cos
+│   │             │       │ │   └─params
+│   │             │       │ │     └─VAR B
+│   │             │       │ └─MUL
+│   │             │       │   ├─ADD
+│   │             │       │   │ ├─MUL
+│   │             │       │   │ │ ├─MEMBER_ACCESS
+│   │             │       │   │ │ │ ├─value
+│   │             │       │   │ │ │ │ └─VAR A_Val
+│   │             │       │   │ │ │ └─member
+│   │             │       │   │ │ │   └─1
+│   │             │       │   │ │ └─FUNCTION_CALL
+│   │             │       │   │ │   ├─name Sin
+│   │             │       │   │ │   └─params
+│   │             │       │   │ │     └─VAR A
+│   │             │       │   │ └─MUL
+│   │             │       │   │   ├─MEMBER_ACCESS
+│   │             │       │   │   │ ├─value
+│   │             │       │   │   │ │ └─VAR A_Val
+│   │             │       │   │   │ └─member
+│   │             │       │   │   │   └─2
+│   │             │       │   │   └─FUNCTION_CALL
+│   │             │       │   │     ├─name Cos
+│   │             │       │   │     └─params
+│   │             │       │   │       └─VAR A
+│   │             │       │   └─FUNCTION_CALL
+│   │             │       │     ├─name Sin
+│   │             │       │     └─params
+│   │             │       │       └─VAR B
+│   │             │       └─0.95
+│   │             └─FUNCTION_CALL
+│   │               ├─name Round
+│   │               └─params
+│   │                 └─ADD
+│   │                   ├─11
+│   │                   └─MUL
+│   │                     ├─SUB
+│   │                     │ ├─MUL
+│   │                     │ │ ├─MEMBER_ACCESS
+│   │                     │ │ │ ├─value
+│   │                     │ │ │ │ └─VAR A_Val
+│   │                     │ │ │ └─member
+│   │                     │ │ │   └─1
+│   │                     │ │ └─FUNCTION_CALL
+│   │                     │ │   ├─name Cos
+│   │                     │ │   └─params
+│   │                     │ │     └─VAR A
+│   │                     │ └─MUL
+│   │                     │   ├─MEMBER_ACCESS
+│   │                     │   │ ├─value
+│   │                     │   │ │ └─VAR A_Val
+│   │                     │   │ └─member
+│   │                     │   │   └─2
+│   │                     │   └─FUNCTION_CALL
+│   │                     │     ├─name Sin
+│   │                     │     └─params
+│   │                     │       └─VAR A
+│   │                     └─0.45
+│   ├─ASSIGNMENT
+│   │ ├─left
+│   │ │ └─VAR buf
+│   │ └─right
+│   │   └─FUNCTION_CALL
+│   │     ├─name StrSplit
+│   │     └─params
+│   │       ├─FUNCTION_CALL
+│   │       │ ├─name Repeat
+│   │       │ └─params
+│   │       │   ├─" "
+│   │       │   └─1056
+│   │       └─""
+│   ├─LOOP
+│   │ ├─count
+│   │ │ └─VAR E
+│   │ └─statements
+│   │   └─LOOP
+│   │     ├─count
+│   │     │ └─ADD
+│   │     │   ├─FUNCTION_CALL
+│   │     │   │ ├─name Max
+│   │     │   │ └─params
+│   │     │   │   ├─FUNCTION_CALL
+│   │     │   │   │ ├─name Max
+│   │     │   │   │ └─params
+│   │     │   │   │   ├─FUNCTION_CALL
+│   │     │   │   │   │ ├─name Abs
+│   │     │   │   │   │ └─params
+│   │     │   │   │   │   └─SUB
+│   │     │   │   │   │     ├─MEMBER_ACCESS
+│   │     │   │   │   │     │ ├─value
+│   │     │   │   │   │     │ │ └─MEMBER_ACCESS
+│   │     │   │   │   │     │ │   ├─value
+│   │     │   │   │   │     │ │   │ └─VAR P
+│   │     │   │   │   │     │ │   └─member
+│   │     │   │   │   │     │ │     └─MEMBER_ACCESS
+│   │     │   │   │   │     │ │       ├─value
+│   │     │   │   │   │     │ │       │ └─VAR A_Val
+│   │     │   │   │   │     │ │       └─member
+│   │     │   │   │   │     │ │         └─1
+│   │     │   │   │   │     │ └─member
+│   │     │   │   │   │     │   └─0
+│   │     │   │   │   │     └─MEMBER_ACCESS
+│   │     │   │   │   │       ├─value
+│   │     │   │   │   │       │ └─MEMBER_ACCESS
+│   │     │   │   │   │       │   ├─value
+│   │     │   │   │   │       │   │ └─VAR P
+│   │     │   │   │   │       │   └─member
+│   │     │   │   │   │       │     └─MEMBER_ACCESS
+│   │     │   │   │   │       │       ├─value
+│   │     │   │   │   │       │       │ └─VAR A_Val
+│   │     │   │   │   │       │       └─member
+│   │     │   │   │   │       │         └─0
+│   │     │   │   │   │       └─member
+│   │     │   │   │   │         └─0
+│   │     │   │   │   └─FUNCTION_CALL
+│   │     │   │   │     ├─name Abs
+│   │     │   │   │     └─params
+│   │     │   │   │       └─SUB
+│   │     │   │   │         ├─MEMBER_ACCESS
+│   │     │   │   │         │ ├─value
+│   │     │   │   │         │ │ └─MEMBER_ACCESS
+│   │     │   │   │         │ │   ├─value
+│   │     │   │   │         │ │   │ └─VAR P
+│   │     │   │   │         │ │   └─member
+│   │     │   │   │         │ │     └─MEMBER_ACCESS
+│   │     │   │   │         │ │       ├─value
+│   │     │   │   │         │ │       │ └─VAR A_Val
+│   │     │   │   │         │ │       └─member
+│   │     │   │   │         │ │         └─1
+│   │     │   │   │         │ └─member
+│   │     │   │   │         │   └─1
+│   │     │   │   │         └─MEMBER_ACCESS
+│   │     │   │   │           ├─value
+│   │     │   │   │           │ └─MEMBER_ACCESS
+│   │     │   │   │           │   ├─value
+│   │     │   │   │           │   │ └─VAR P
+│   │     │   │   │           │   └─member
+│   │     │   │   │           │     └─MEMBER_ACCESS
+│   │     │   │   │           │       ├─value
+│   │     │   │   │           │       │ └─VAR A_Val
+│   │     │   │   │           │       └─member
+│   │     │   │   │           │         └─0
+│   │     │   │   │           └─member
+│   │     │   │   │             └─1
+│   │     │   │   └─1
+│   │     │   └─1
+│   │     └─statements
+│   │       └─ASSIGNMENT
+│   │         ├─left
+│   │         │ └─MEMBER_ACCESS
+│   │         │   ├─value
+│   │         │   │ └─VAR buf
+│   │         │   └─member
+│   │         │     └─ADD
+│   │         │       ├─MUL
+│   │         │       │ ├─FUNCTION_CALL
+│   │         │       │ │ ├─name Round
+│   │         │       │ │ └─params
+│   │         │       │ │   └─ADD
+│   │         │       │ │     ├─MEMBER_ACCESS
+│   │         │       │ │     │ ├─value
+│   │         │       │ │     │ │ └─MEMBER_ACCESS
+│   │         │       │ │     │ │   ├─value
+│   │         │       │ │     │ │   │ └─VAR P
+│   │         │       │ │     │ │   └─member
+│   │         │       │ │     │ │     └─MEMBER_ACCESS
+│   │         │       │ │     │ │       ├─value
+│   │         │       │ │     │ │       │ └─VAR A_Val
+│   │         │       │ │     │ │       └─member
+│   │         │       │ │     │ │         └─0
+│   │         │       │ │     │ └─member
+│   │         │       │ │     │   └─1
+│   │         │       │ │     └─MUL
+│   │         │       │ │       ├─SUB
+│   │         │       │ │       │ ├─MEMBER_ACCESS
+│   │         │       │ │       │ │ ├─value
+│   │         │       │ │       │ │ │ └─MEMBER_ACCESS
+│   │         │       │ │       │ │ │   ├─value
+│   │         │       │ │       │ │ │   │ └─VAR P
+│   │         │       │ │       │ │ │   └─member
+│   │         │       │ │       │ │ │     └─MEMBER_ACCESS
+│   │         │       │ │       │ │ │       ├─value
+│   │         │       │ │       │ │ │       │ └─VAR A_Val
+│   │         │       │ │       │ │ │       └─member
+│   │         │       │ │       │ │ │         └─1
+│   │         │       │ │       │ │ └─member
+│   │         │       │ │       │ │   └─1
+│   │         │       │ │       │ └─MEMBER_ACCESS
+│   │         │       │ │       │   ├─value
+│   │         │       │ │       │   │ └─MEMBER_ACCESS
+│   │         │       │ │       │   │   ├─value
+│   │         │       │ │       │   │   │ └─VAR P
+│   │         │       │ │       │   │   └─member
+│   │         │       │ │       │   │     └─MEMBER_ACCESS
+│   │         │       │ │       │   │       ├─value
+│   │         │       │ │       │   │       │ └─VAR A_Val
+│   │         │       │ │       │   │       └─member
+│   │         │       │ │       │   │         └─0
+│   │         │       │ │       │   └─member
+│   │         │       │ │       │     └─1
+│   │         │       │ │       └─DIV
+│   │         │       │ │         ├─SUB
+│   │         │       │ │         │ ├─VAR A_index
+│   │         │       │ │         │ └─1
+│   │         │       │ │         └─FUNCTION_CALL
+│   │         │       │ │           ├─name Max
+│   │         │       │ │           └─params
+│   │         │       │ │             ├─FUNCTION_CALL
+│   │         │       │ │             │ ├─name Max
+│   │         │       │ │             │ └─params
+│   │         │       │ │             │   ├─FUNCTION_CALL
+│   │         │       │ │             │   │ ├─name Abs
+│   │         │       │ │             │   │ └─params
+│   │         │       │ │             │   │   └─SUB
+│   │         │       │ │             │   │     ├─MEMBER_ACCESS
+│   │         │       │ │             │   │     │ ├─value
+│   │         │       │ │             │   │     │ │ └─MEMBER_ACCESS
+│   │         │       │ │             │   │     │ │   ├─value
+│   │         │       │ │             │   │     │ │   │ └─VAR P
+│   │         │       │ │             │   │     │ │   └─member
+│   │         │       │ │             │   │     │ │     └─MEMBER_ACCESS
+│   │         │       │ │             │   │     │ │       ├─value
+│   │         │       │ │             │   │     │ │       │ └─VAR A_Val
+│   │         │       │ │             │   │     │ │       └─member
+│   │         │       │ │             │   │     │ │         └─1
+│   │         │       │ │             │   │     │ └─member
+│   │         │       │ │             │   │     │   └─0
+│   │         │       │ │             │   │     └─MEMBER_ACCESS
+│   │         │       │ │             │   │       ├─value
+│   │         │       │ │             │   │       │ └─MEMBER_ACCESS
+│   │         │       │ │             │   │       │   ├─value
+│   │         │       │ │             │   │       │   │ └─VAR P
+│   │         │       │ │             │   │       │   └─member
+│   │         │       │ │             │   │       │     └─MEMBER_ACCESS
+│   │         │       │ │             │   │       │       ├─value
+│   │         │       │ │             │   │       │       │ └─VAR A_Val
+│   │         │       │ │             │   │       │       └─member
+│   │         │       │ │             │   │       │         └─0
+│   │         │       │ │             │   │       └─member
+│   │         │       │ │             │   │         └─0
+│   │         │       │ │             │   └─FUNCTION_CALL
+│   │         │       │ │             │     ├─name Abs
+│   │         │       │ │             │     └─params
+│   │         │       │ │             │       └─SUB
+│   │         │       │ │             │         ├─MEMBER_ACCESS
+│   │         │       │ │             │         │ ├─value
+│   │         │       │ │             │         │ │ └─MEMBER_ACCESS
+│   │         │       │ │             │         │ │   ├─value
+│   │         │       │ │             │         │ │   │ └─VAR P
+│   │         │       │ │             │         │ │   └─member
+│   │         │       │ │             │         │ │     └─MEMBER_ACCESS
+│   │         │       │ │             │         │ │       ├─value
+│   │         │       │ │             │         │ │       │ └─VAR A_Val
+│   │         │       │ │             │         │ │       └─member
+│   │         │       │ │             │         │ │         └─1
+│   │         │       │ │             │         │ └─member
+│   │         │       │ │             │         │   └─1
+│   │         │       │ │             │         └─MEMBER_ACCESS
+│   │         │       │ │             │           ├─value
+│   │         │       │ │             │           │ └─MEMBER_ACCESS
+│   │         │       │ │             │           │   ├─value
+│   │         │       │ │             │           │   │ └─VAR P
+│   │         │       │ │             │           │   └─member
+│   │         │       │ │             │           │     └─MEMBER_ACCESS
+│   │         │       │ │             │           │       ├─value
+│   │         │       │ │             │           │       │ └─VAR A_Val
+│   │         │       │ │             │           │       └─member
+│   │         │       │ │             │           │         └─0
+│   │         │       │ │             │           └─member
+│   │         │       │ │             │             └─1
+│   │         │       │ │             └─1
+│   │         │       │ └─48
+│   │         │       └─FUNCTION_CALL
+│   │         │         ├─name Round
+│   │         │         └─params
+│   │         │           └─ADD
+│   │         │             ├─MEMBER_ACCESS
+│   │         │             │ ├─value
+│   │         │             │ │ └─MEMBER_ACCESS
+│   │         │             │ │   ├─value
+│   │         │             │ │   │ └─VAR P
+│   │         │             │ │   └─member
+│   │         │             │ │     └─MEMBER_ACCESS
+│   │         │             │ │       ├─value
+│   │         │             │ │       │ └─VAR A_Val
+│   │         │             │ │       └─member
+│   │         │             │ │         └─0
+│   │         │             │ └─member
+│   │         │             │   └─0
+│   │         │             └─MUL
+│   │         │               ├─SUB
+│   │         │               │ ├─MEMBER_ACCESS
+│   │         │               │ │ ├─value
+│   │         │               │ │ │ └─MEMBER_ACCESS
+│   │         │               │ │ │   ├─value
+│   │         │               │ │ │   │ └─VAR P
+│   │         │               │ │ │   └─member
+│   │         │               │ │ │     └─MEMBER_ACCESS
+│   │         │               │ │ │       ├─value
+│   │         │               │ │ │       │ └─VAR A_Val
+│   │         │               │ │ │       └─member
+│   │         │               │ │ │         └─1
+│   │         │               │ │ └─member
+│   │         │               │ │   └─0
+│   │         │               │ └─MEMBER_ACCESS
+│   │         │               │   ├─value
+│   │         │               │   │ └─MEMBER_ACCESS
+│   │         │               │   │   ├─value
+│   │         │               │   │   │ └─VAR P
+│   │         │               │   │   └─member
+│   │         │               │   │     └─MEMBER_ACCESS
+│   │         │               │   │       ├─value
+│   │         │               │   │       │ └─VAR A_Val
+│   │         │               │   │       └─member
+│   │         │               │   │         └─0
+│   │         │               │   └─member
+│   │         │               │     └─0
+│   │         │               └─DIV
+│   │         │                 ├─SUB
+│   │         │                 │ ├─VAR A_index
+│   │         │                 │ └─1
+│   │         │                 └─FUNCTION_CALL
+│   │         │                   ├─name Max
+│   │         │                   └─params
+│   │         │                     ├─FUNCTION_CALL
+│   │         │                     │ ├─name Max
+│   │         │                     │ └─params
+│   │         │                     │   ├─FUNCTION_CALL
+│   │         │                     │   │ ├─name Abs
+│   │         │                     │   │ └─params
+│   │         │                     │   │   └─SUB
+│   │         │                     │   │     ├─MEMBER_ACCESS
+│   │         │                     │   │     │ ├─value
+│   │         │                     │   │     │ │ └─MEMBER_ACCESS
+│   │         │                     │   │     │ │   ├─value
+│   │         │                     │   │     │ │   │ └─VAR P
+│   │         │                     │   │     │ │   └─member
+│   │         │                     │   │     │ │     └─MEMBER_ACCESS
+│   │         │                     │   │     │ │       ├─value
+│   │         │                     │   │     │ │       │ └─VAR A_Val
+│   │         │                     │   │     │ │       └─member
+│   │         │                     │   │     │ │         └─1
+│   │         │                     │   │     │ └─member
+│   │         │                     │   │     │   └─0
+│   │         │                     │   │     └─MEMBER_ACCESS
+│   │         │                     │   │       ├─value
+│   │         │                     │   │       │ └─MEMBER_ACCESS
+│   │         │                     │   │       │   ├─value
+│   │         │                     │   │       │   │ └─VAR P
+│   │         │                     │   │       │   └─member
+│   │         │                     │   │       │     └─MEMBER_ACCESS
+│   │         │                     │   │       │       ├─value
+│   │         │                     │   │       │       │ └─VAR A_Val
+│   │         │                     │   │       │       └─member
+│   │         │                     │   │       │         └─0
+│   │         │                     │   │       └─member
+│   │         │                     │   │         └─0
+│   │         │                     │   └─FUNCTION_CALL
+│   │         │                     │     ├─name Abs
+│   │         │                     │     └─params
+│   │         │                     │       └─SUB
+│   │         │                     │         ├─MEMBER_ACCESS
+│   │         │                     │         │ ├─value
+│   │         │                     │         │ │ └─MEMBER_ACCESS
+│   │         │                     │         │ │   ├─value
+│   │         │                     │         │ │   │ └─VAR P
+│   │         │                     │         │ │   └─member
+│   │         │                     │         │ │     └─MEMBER_ACCESS
+│   │         │                     │         │ │       ├─value
+│   │         │                     │         │ │       │ └─VAR A_Val
+│   │         │                     │         │ │       └─member
+│   │         │                     │         │ │         └─1
+│   │         │                     │         │ └─member
+│   │         │                     │         │   └─1
+│   │         │                     │         └─MEMBER_ACCESS
+│   │         │                     │           ├─value
+│   │         │                     │           │ └─MEMBER_ACCESS
+│   │         │                     │           │   ├─value
+│   │         │                     │           │   │ └─VAR P
+│   │         │                     │           │   └─member
+│   │         │                     │           │     └─MEMBER_ACCESS
+│   │         │                     │           │       ├─value
+│   │         │                     │           │       │ └─VAR A_Val
+│   │         │                     │           │       └─member
+│   │         │                     │           │         └─0
+│   │         │                     │           └─member
+│   │         │                     │             └─1
+│   │         │                     └─1
+│   │         └─right
+│   │           └─"#"
+│   ├─FUNCTION_CALL
+│   │ ├─name Clear
+│   │ └─params
+│   ├─LOOP
+│   │ ├─count
+│   │ │ └─22
+│   │ └─statements
+│   │   └─FUNCTION_CALL
+│   │     ├─name Print
+│   │     └─params
+│   │       └─FUNCTION_CALL
+│   │         ├─name Join
+│   │         └─params
+│   │           ├─FUNCTION_CALL
+│   │           │ ├─name Slice
+│   │           │ └─params
+│   │           │   ├─VAR buf
+│   │           │   ├─MUL
+│   │           │   │ ├─SUB
+│   │           │   │ │ ├─VAR A_index
+│   │           │   │ │ └─1
+│   │           │   │ └─48
+│   │           │   └─MUL
+│   │           │     ├─VAR A_index
+│   │           │     └─48
+│   │           └─""
+│   ├─ASSIGNMENT
+│   │ ├─left
+│   │ │ └─VAR A
+│   │ └─right
+│   │   └─ADD
+│   │     ├─VAR A
+│   │     └─0.08
+│   └─ASSIGNMENT
+│     ├─left
+│     │ └─VAR B
+│     └─right
+│       └─ADD
+│         ├─VAR B
+│         └─0.12
+└─FUNCTION_CALL
+  ├─name PrintAST
+  └─params
+    └─"ast.txt"
 
+
+{
+  "statements": [
+    {
+      "type": 0,
+      "left": {
+        "type": 26,
+        "name": "A"
+      },
+      "right": {
+        "type": 25,
+        "value": 0
+      }
+    },
+    {
+      "type": 0,
+      "left": {
+        "type": 26,
+        "name": "B"
+      },
+      "right": {
+        "type": 25,
+        "value": 0
+      }
+    },
+    {
+      "type": 0,
+      "left": {
+        "type": 26,
+        "name": "V"
+      },
+      "right": {
+        "type": 28,
+        "items": [
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 25,
+                "value": 12
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 25,
+                "value": 12
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 25,
+                "value": 12
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 22,
+                "left": {
+                  "type": 25,
+                  "value": 0
+                },
+                "right": {
+                  "type": 25,
+                  "value": 12
+                }
+              },
+              {
+                "type": 25,
+                "value": 12
+              },
+              {
+                "type": 25,
+                "value": 12
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": 0,
+      "left": {
+        "type": 26,
+        "name": "E"
+      },
+      "right": {
+        "type": 28,
+        "items": [
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 0
+              },
+              {
+                "type": 25,
+                "value": 1
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 1
+              },
+              {
+                "type": 25,
+                "value": 2
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 2
+              },
+              {
+                "type": 25,
+                "value": 3
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 3
+              },
+              {
+                "type": 25,
+                "value": 0
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 4
+              },
+              {
+                "type": 25,
+                "value": 5
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 5
+              },
+              {
+                "type": 25,
+                "value": 6
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 6
+              },
+              {
+                "type": 25,
+                "value": 7
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 7
+              },
+              {
+                "type": 25,
+                "value": 4
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 0
+              },
+              {
+                "type": 25,
+                "value": 4
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 1
+              },
+              {
+                "type": 25,
+                "value": 5
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 2
+              },
+              {
+                "type": 25,
+                "value": 6
+              }
+            ]
+          },
+          {
+            "type": 28,
+            "items": [
+              {
+                "type": 25,
+                "value": 3
+              },
+              {
+                "type": 25,
+                "value": 7
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": 2,
+      "count": {
+        "type": 25,
+        "value": 250
+      },
+      "statements": [
+        {
+          "type": 0,
+          "left": {
+            "type": 26,
+            "name": "P"
+          },
+          "right": {
+            "type": 28,
+            "items": []
+          }
+        },
+        {
+          "type": 2,
+          "count": {
+            "type": 26,
+            "name": "V"
+          },
+          "statements": [
+            {
+              "type": 0,
+              "left": {
+                "type": 26,
+                "name": "P"
+              },
+              "right": {
+                "type": 6,
+                "name": "Push",
+                "params": [
+                  {
+                    "type": 26,
+                    "name": "P"
+                  },
+                  {
+                    "type": 28,
+                    "items": [
+                      {
+                        "type": 6,
+                        "name": "Round",
+                        "params": [
+                          {
+                            "type": 21,
+                            "left": {
+                              "type": 25,
+                              "value": 24
+                            },
+                            "right": {
+                              "type": 23,
+                              "left": {
+                                "type": 21,
+                                "left": {
+                                  "type": 23,
+                                  "left": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 26,
+                                      "name": "A_Val"
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 25,
+                                        "value": 0
+                                      }
+                                    ]
+                                  },
+                                  "right": {
+                                    "type": 6,
+                                    "name": "Cos",
+                                    "params": [
+                                      {
+                                        "type": 26,
+                                        "name": "B"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "right": {
+                                  "type": 23,
+                                  "left": {
+                                    "type": 21,
+                                    "left": {
+                                      "type": 23,
+                                      "left": {
+                                        "type": 29,
+                                        "value": {
+                                          "type": 26,
+                                          "name": "A_Val"
+                                        },
+                                        "member": [
+                                          {
+                                            "type": 25,
+                                            "value": 1
+                                          }
+                                        ]
+                                      },
+                                      "right": {
+                                        "type": 6,
+                                        "name": "Sin",
+                                        "params": [
+                                          {
+                                            "type": 26,
+                                            "name": "A"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "right": {
+                                      "type": 23,
+                                      "left": {
+                                        "type": 29,
+                                        "value": {
+                                          "type": 26,
+                                          "name": "A_Val"
+                                        },
+                                        "member": [
+                                          {
+                                            "type": 25,
+                                            "value": 2
+                                          }
+                                        ]
+                                      },
+                                      "right": {
+                                        "type": 6,
+                                        "name": "Cos",
+                                        "params": [
+                                          {
+                                            "type": 26,
+                                            "name": "A"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "right": {
+                                    "type": 6,
+                                    "name": "Sin",
+                                    "params": [
+                                      {
+                                        "type": 26,
+                                        "name": "B"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "right": {
+                                "type": 25,
+                                "value": 0.95
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": 6,
+                        "name": "Round",
+                        "params": [
+                          {
+                            "type": 21,
+                            "left": {
+                              "type": 25,
+                              "value": 11
+                            },
+                            "right": {
+                              "type": 23,
+                              "left": {
+                                "type": 22,
+                                "left": {
+                                  "type": 23,
+                                  "left": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 26,
+                                      "name": "A_Val"
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 25,
+                                        "value": 1
+                                      }
+                                    ]
+                                  },
+                                  "right": {
+                                    "type": 6,
+                                    "name": "Cos",
+                                    "params": [
+                                      {
+                                        "type": 26,
+                                        "name": "A"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "right": {
+                                  "type": 23,
+                                  "left": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 26,
+                                      "name": "A_Val"
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 25,
+                                        "value": 2
+                                      }
+                                    ]
+                                  },
+                                  "right": {
+                                    "type": 6,
+                                    "name": "Sin",
+                                    "params": [
+                                      {
+                                        "type": 26,
+                                        "name": "A"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "right": {
+                                "type": 25,
+                                "value": 0.45
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": 0,
+          "left": {
+            "type": 26,
+            "name": "buf"
+          },
+          "right": {
+            "type": 6,
+            "name": "StrSplit",
+            "params": [
+              {
+                "type": 6,
+                "name": "Repeat",
+                "params": [
+                  {
+                    "type": 25,
+                    "value": "\" \""
+                  },
+                  {
+                    "type": 25,
+                    "value": 1056
+                  }
+                ]
+              },
+              {
+                "type": 25,
+                "value": "\"\""
+              }
+            ]
+          }
+        },
+        {
+          "type": 2,
+          "count": {
+            "type": 26,
+            "name": "E"
+          },
+          "statements": [
+            {
+              "type": 2,
+              "count": {
+                "type": 21,
+                "left": {
+                  "type": 6,
+                  "name": "Max",
+                  "params": [
+                    {
+                      "type": 6,
+                      "name": "Max",
+                      "params": [
+                        {
+                          "type": 6,
+                          "name": "Abs",
+                          "params": [
+                            {
+                              "type": 22,
+                              "left": {
+                                "type": 29,
+                                "value": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 26,
+                                    "name": "P"
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "A_Val"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 1
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "member": [
+                                  {
+                                    "type": 25,
+                                    "value": 0
+                                  }
+                                ]
+                              },
+                              "right": {
+                                "type": 29,
+                                "value": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 26,
+                                    "name": "P"
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "A_Val"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "member": [
+                                  {
+                                    "type": 25,
+                                    "value": 0
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": 6,
+                          "name": "Abs",
+                          "params": [
+                            {
+                              "type": 22,
+                              "left": {
+                                "type": 29,
+                                "value": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 26,
+                                    "name": "P"
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "A_Val"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 1
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "member": [
+                                  {
+                                    "type": 25,
+                                    "value": 1
+                                  }
+                                ]
+                              },
+                              "right": {
+                                "type": 29,
+                                "value": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 26,
+                                    "name": "P"
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "A_Val"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "member": [
+                                  {
+                                    "type": 25,
+                                    "value": 1
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": 25,
+                      "value": 1
+                    }
+                  ]
+                },
+                "right": {
+                  "type": 25,
+                  "value": 1
+                }
+              },
+              "statements": [
+                {
+                  "type": 0,
+                  "left": {
+                    "type": 29,
+                    "value": {
+                      "type": 26,
+                      "name": "buf"
+                    },
+                    "member": [
+                      {
+                        "type": 21,
+                        "left": {
+                          "type": 23,
+                          "left": {
+                            "type": 6,
+                            "name": "Round",
+                            "params": [
+                              {
+                                "type": 21,
+                                "left": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 26,
+                                      "name": "P"
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 29,
+                                        "value": {
+                                          "type": 26,
+                                          "name": "A_Val"
+                                        },
+                                        "member": [
+                                          {
+                                            "type": 25,
+                                            "value": 0
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 25,
+                                      "value": 1
+                                    }
+                                  ]
+                                },
+                                "right": {
+                                  "type": 23,
+                                  "left": {
+                                    "type": 22,
+                                    "left": {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 29,
+                                        "value": {
+                                          "type": 26,
+                                          "name": "P"
+                                        },
+                                        "member": [
+                                          {
+                                            "type": 29,
+                                            "value": {
+                                              "type": 26,
+                                              "name": "A_Val"
+                                            },
+                                            "member": [
+                                              {
+                                                "type": 25,
+                                                "value": 1
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 1
+                                        }
+                                      ]
+                                    },
+                                    "right": {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 29,
+                                        "value": {
+                                          "type": 26,
+                                          "name": "P"
+                                        },
+                                        "member": [
+                                          {
+                                            "type": 29,
+                                            "value": {
+                                              "type": 26,
+                                              "name": "A_Val"
+                                            },
+                                            "member": [
+                                              {
+                                                "type": 25,
+                                                "value": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 1
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "right": {
+                                    "type": 24,
+                                    "left": {
+                                      "type": 22,
+                                      "left": {
+                                        "type": 26,
+                                        "name": "A_index"
+                                      },
+                                      "right": {
+                                        "type": 25,
+                                        "value": 1
+                                      }
+                                    },
+                                    "right": {
+                                      "type": 6,
+                                      "name": "Max",
+                                      "params": [
+                                        {
+                                          "type": 6,
+                                          "name": "Max",
+                                          "params": [
+                                            {
+                                              "type": 6,
+                                              "name": "Abs",
+                                              "params": [
+                                                {
+                                                  "type": 22,
+                                                  "left": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 29,
+                                                      "value": {
+                                                        "type": 26,
+                                                        "name": "P"
+                                                      },
+                                                      "member": [
+                                                        {
+                                                          "type": 29,
+                                                          "value": {
+                                                            "type": 26,
+                                                            "name": "A_Val"
+                                                          },
+                                                          "member": [
+                                                            {
+                                                              "type": 25,
+                                                              "value": 1
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 25,
+                                                        "value": 0
+                                                      }
+                                                    ]
+                                                  },
+                                                  "right": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 29,
+                                                      "value": {
+                                                        "type": 26,
+                                                        "name": "P"
+                                                      },
+                                                      "member": [
+                                                        {
+                                                          "type": 29,
+                                                          "value": {
+                                                            "type": 26,
+                                                            "name": "A_Val"
+                                                          },
+                                                          "member": [
+                                                            {
+                                                              "type": 25,
+                                                              "value": 0
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 25,
+                                                        "value": 0
+                                                      }
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": 6,
+                                              "name": "Abs",
+                                              "params": [
+                                                {
+                                                  "type": 22,
+                                                  "left": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 29,
+                                                      "value": {
+                                                        "type": 26,
+                                                        "name": "P"
+                                                      },
+                                                      "member": [
+                                                        {
+                                                          "type": 29,
+                                                          "value": {
+                                                            "type": 26,
+                                                            "name": "A_Val"
+                                                          },
+                                                          "member": [
+                                                            {
+                                                              "type": 25,
+                                                              "value": 1
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 25,
+                                                        "value": 1
+                                                      }
+                                                    ]
+                                                  },
+                                                  "right": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 29,
+                                                      "value": {
+                                                        "type": 26,
+                                                        "name": "P"
+                                                      },
+                                                      "member": [
+                                                        {
+                                                          "type": 29,
+                                                          "value": {
+                                                            "type": 26,
+                                                            "name": "A_Val"
+                                                          },
+                                                          "member": [
+                                                            {
+                                                              "type": 25,
+                                                              "value": 0
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 25,
+                                                        "value": 1
+                                                      }
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": 25,
+                                          "value": 1
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "right": {
+                            "type": 25,
+                            "value": 48
+                          }
+                        },
+                        "right": {
+                          "type": 6,
+                          "name": "Round",
+                          "params": [
+                            {
+                              "type": 21,
+                              "left": {
+                                "type": 29,
+                                "value": {
+                                  "type": 29,
+                                  "value": {
+                                    "type": 26,
+                                    "name": "P"
+                                  },
+                                  "member": [
+                                    {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "A_Val"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 25,
+                                          "value": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "member": [
+                                  {
+                                    "type": 25,
+                                    "value": 0
+                                  }
+                                ]
+                              },
+                              "right": {
+                                "type": 23,
+                                "left": {
+                                  "type": 22,
+                                  "left": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "P"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 29,
+                                          "value": {
+                                            "type": 26,
+                                            "name": "A_Val"
+                                          },
+                                          "member": [
+                                            {
+                                              "type": 25,
+                                              "value": 1
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 25,
+                                        "value": 0
+                                      }
+                                    ]
+                                  },
+                                  "right": {
+                                    "type": 29,
+                                    "value": {
+                                      "type": 29,
+                                      "value": {
+                                        "type": 26,
+                                        "name": "P"
+                                      },
+                                      "member": [
+                                        {
+                                          "type": 29,
+                                          "value": {
+                                            "type": 26,
+                                            "name": "A_Val"
+                                          },
+                                          "member": [
+                                            {
+                                              "type": 25,
+                                              "value": 0
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "member": [
+                                      {
+                                        "type": 25,
+                                        "value": 0
+                                      }
+                                    ]
+                                  }
+                                },
+                                "right": {
+                                  "type": 24,
+                                  "left": {
+                                    "type": 22,
+                                    "left": {
+                                      "type": 26,
+                                      "name": "A_index"
+                                    },
+                                    "right": {
+                                      "type": 25,
+                                      "value": 1
+                                    }
+                                  },
+                                  "right": {
+                                    "type": 6,
+                                    "name": "Max",
+                                    "params": [
+                                      {
+                                        "type": 6,
+                                        "name": "Max",
+                                        "params": [
+                                          {
+                                            "type": 6,
+                                            "name": "Abs",
+                                            "params": [
+                                              {
+                                                "type": 22,
+                                                "left": {
+                                                  "type": 29,
+                                                  "value": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 26,
+                                                      "name": "P"
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 29,
+                                                        "value": {
+                                                          "type": 26,
+                                                          "name": "A_Val"
+                                                        },
+                                                        "member": [
+                                                          {
+                                                            "type": 25,
+                                                            "value": 1
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  },
+                                                  "member": [
+                                                    {
+                                                      "type": 25,
+                                                      "value": 0
+                                                    }
+                                                  ]
+                                                },
+                                                "right": {
+                                                  "type": 29,
+                                                  "value": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 26,
+                                                      "name": "P"
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 29,
+                                                        "value": {
+                                                          "type": 26,
+                                                          "name": "A_Val"
+                                                        },
+                                                        "member": [
+                                                          {
+                                                            "type": 25,
+                                                            "value": 0
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  },
+                                                  "member": [
+                                                    {
+                                                      "type": 25,
+                                                      "value": 0
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "type": 6,
+                                            "name": "Abs",
+                                            "params": [
+                                              {
+                                                "type": 22,
+                                                "left": {
+                                                  "type": 29,
+                                                  "value": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 26,
+                                                      "name": "P"
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 29,
+                                                        "value": {
+                                                          "type": 26,
+                                                          "name": "A_Val"
+                                                        },
+                                                        "member": [
+                                                          {
+                                                            "type": 25,
+                                                            "value": 1
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  },
+                                                  "member": [
+                                                    {
+                                                      "type": 25,
+                                                      "value": 1
+                                                    }
+                                                  ]
+                                                },
+                                                "right": {
+                                                  "type": 29,
+                                                  "value": {
+                                                    "type": 29,
+                                                    "value": {
+                                                      "type": 26,
+                                                      "name": "P"
+                                                    },
+                                                    "member": [
+                                                      {
+                                                        "type": 29,
+                                                        "value": {
+                                                          "type": 26,
+                                                          "name": "A_Val"
+                                                        },
+                                                        "member": [
+                                                          {
+                                                            "type": 25,
+                                                            "value": 0
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  },
+                                                  "member": [
+                                                    {
+                                                      "type": 25,
+                                                      "value": 1
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "type": 25,
+                                        "value": 1
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "right": {
+                    "type": 25,
+                    "value": "\"#\""
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": 6,
+          "name": "Clear",
+          "params": []
+        },
+        {
+          "type": 2,
+          "count": {
+            "type": 25,
+            "value": 22
+          },
+          "statements": [
+            {
+              "type": 6,
+              "name": "Print",
+              "params": [
+                {
+                  "type": 6,
+                  "name": "Join",
+                  "params": [
+                    {
+                      "type": 6,
+                      "name": "Slice",
+                      "params": [
+                        {
+                          "type": 26,
+                          "name": "buf"
+                        },
+                        {
+                          "type": 23,
+                          "left": {
+                            "type": 22,
+                            "left": {
+                              "type": 26,
+                              "name": "A_index"
+                            },
+                            "right": {
+                              "type": 25,
+                              "value": 1
+                            }
+                          },
+                          "right": {
+                            "type": 25,
+                            "value": 48
+                          }
+                        },
+                        {
+                          "type": 23,
+                          "left": {
+                            "type": 26,
+                            "name": "A_index"
+                          },
+                          "right": {
+                            "type": 25,
+                            "value": 48
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": 25,
+                      "value": "\"\""
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": 0,
+          "left": {
+            "type": 26,
+            "name": "A"
+          },
+          "right": {
+            "type": 21,
+            "left": {
+              "type": 26,
+              "name": "A"
+            },
+            "right": {
+              "type": 25,
+              "value": 0.08
+            }
+          }
+        },
+        {
+          "type": 0,
+          "left": {
+            "type": 26,
+            "name": "B"
+          },
+          "right": {
+            "type": 21,
+            "left": {
+              "type": 26,
+              "name": "B"
+            },
+            "right": {
+              "type": 25,
+              "value": 0.12
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": 6,
+      "name": "PrintAST",
+      "params": [
+        {
+          "type": 25,
+          "value": "\"ast.txt\""
+        }
+      ]
+    }
+  ]
+}
+```
 ## 🗺 Roadmap
 
 - [x] High-inference expression engine with operator precedence AST parser
