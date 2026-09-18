@@ -1,76 +1,25 @@
-;it should be able to do this in like 20 lines, i'm so sorry lmfao
-screenWidth := 48
-screenHeight := 22
-scale := 0.45
-S := 12
-angleA := 0.0
-angleB := 0.0
-vertices := [[-S,-S,-S],[S,-S,-S],[S,S,-S],[-S,S,-S],[-S,-S,S],[S,-S,S],[S,S,S],[-S,S,S]]
-edges := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
+A := 0
+B := 0
+V := [[-12,-12,-12],[12,-12,-12],[12,12,-12],[-12,12,-12],[-12,-12,12],[12,-12,12],[12,12,12],[-12,12,12]]
+E := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
 Loop (250) {
-    pxs := []
-    pys := []
-    Loop (vertices) {
-        v := A_Val
-        pxs := Push(pxs, ProjX(v[0], v[1], v[2], angleA, angleB, scale, screenWidth))
-        pys := Push(pys, ProjY(v[0], v[1], v[2], angleA, angleB, scale, screenHeight))
+    PX := []
+    PY := []
+    Loop (V) {
+        PX := Push(PX, Round(24 + (A_Val[0] * Cos(B) + (A_Val[1] * Sin(A) + A_Val[2] * Cos(A)) * Sin(B)) * 0.95))
+        PY := Push(PY, Round(11 + (A_Val[1] * Cos(A) - A_Val[2] * Sin(A)) * 0.45))
     }
-    buf := []
-    Loop (screenWidth * screenHeight)
-        buf := Push(buf, " ")
-
-    Loop (edges) {
-        e := A_Val
-        a := e[0]
-        b := e[1]
-        DrawLine(buf, pxs[a], pys[a], pxs[b], pys[b], screenWidth, screenHeight)
+    buf := StrSplit(Repeat(" ", 1056), "")
+    Loop (E) {
+        dx := PX[A_Val[1]] - PX[A_Val[0]]
+        dy := PY[A_Val[1]] - PY[A_Val[0]]
+        s := Max(Max(Abs(dx), Abs(dy)), 1)
+        Loop (s + 1)
+            buf[Round(PY[A_Val[0]] + dy * (A_index-1) / s) * 48 + Round(PX[A_Val[0]] + dx * (A_index-1) / s)] := "#"
     }
     Clear()
-    row := 0
-    Loop (screenHeight) {
-        start := row * screenWidth
-        Print(Join(Slice(buf, start, start + screenWidth), ""))
-        row := row + 1
-    }
-    angleA := angleA + 0.08
-    angleB := angleB + 0.12
-
-}
-
-ProjX(x, y, z, a, b, scl, width) {
-    yR := y * Cos(a) - z * Sin(a)
-    zR := y * Sin(a) + z * Cos(a)
-    xR := x * Cos(b) + zR * Sin(b)
-    return Round(width / 2 + xR * scl * 2.1)
-}
-
-ProjY(x, y, z, a, b, scl, height) {
-    yR := y * Cos(a) - z * Sin(a)
-    zR := y * Sin(a) + z * Cos(a)
-    return Round(height / 2 + yR * scl)
-}
-
-DrawLine(buf, x1, y1, x2, y2, width, height) {
-    dx := x2 - x1
-    dy := y2 - y1
-    steps := Max(Abs(dx), Abs(dy))
-    if (steps = 0) {
-        Plot(buf, x1, y1, width, height)
-        return 0
-    }
-    sx := dx / steps
-    sy := dy / steps
-    i := 0
-    Loop (steps + 1) {
-        Plot(buf, Round(x1 + sx * i), Round(y1 + sy * i), width, height)
-        i := i + 1
-    }
-}
-
-Plot(buf, x, y, width, height) {
-    if (x >= 0) 
-        if (x < width) 
-            if (y >= 0) 
-                if (y < height) 
-                    buf[y * width + x] := "."
+    Loop (22)
+        Print(Join(Slice(buf, (A_index-1) * 48, A_index * 48), ""))
+    A := A + 0.08
+    B := B + 0.12
 }
