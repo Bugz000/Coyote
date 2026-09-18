@@ -1738,6 +1738,8 @@ class ASTExecutor {
 			{ code: 'isNum(Dice(6))', expected: 1 }, // same - Dice is non-deterministic
 			{ code: 'Rem("Hello", "e")', expected: [ { match: 'e', pos: 1 } ] },
 			{ code: 'Repl("Hello", "l", "x")', expected: 'Hexlo' }, // was `expected: 'Hexxo'` - Repl only replaces the first match (see Repl("Hello","l","L") above)
+			{ code: 'Repl("Hello", "l", "x", 1)', expected: 'Hexxo' }, // the 4th param (Recursive) is what actually gets you the all-matches behavior
+			{ code: 'Repl("aaa", "a", "b", 1)', expected: 'bbb' },
 			{ code: 'Grep("e", "Hello")', expected: ["Hello"] }, // was `Grep("Hello", "e")` expected 1 - args were the wrong way round (Grep(pattern, text)) and 1 isn't a possible return value (Grep returns matching lines)
 			{ code: 'StrSplit("Hello,World", ",")', expected: ["Hello", "World"] }, // was `expected: true`, which an array could never equal
 			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // was `Justify("Hello", "left", 10)` - the justify type is numeric (1/2/3), not the string "left"
@@ -1848,6 +1850,58 @@ class ASTExecutor {
 			{ code: 'arr := [1, 2, 3]\nprint(Sum(arr))', expected: '6' },
 			{ code: 'obj := {"a": "1", "b": "2"}\nprint(obj.a . obj.b)', expected: '12' },
 			{ code: 'greet(name := "World") { return "Hello " . name }\nprint(greet())', expected: 'Hello World' },
+
+			// Mod / Sign / Clamp / RandRange - there's no % operator in the language at all, and no clamping/sign helpers either
+			{ code: 'Mod(7, 3)', expected: 1 },
+			{ code: 'Mod(10, 5)', expected: 0 },
+			{ code: 'Mod(-7, 3)', expected: -1 }, // JS % semantics - sign follows the dividend, not a "true" always-positive mod
+			{ code: 'Sign(-5)', expected: -1 },
+			{ code: 'Sign(5)', expected: 1 },
+			{ code: 'Sign(0)', expected: 0 },
+			{ code: 'Clamp(15, 0, 10)', expected: 10 },
+			{ code: 'Clamp(-5, 0, 10)', expected: 0 },
+			{ code: 'Clamp(5, 0, 10)', expected: 5 },
+			{ code: 'Clamp(5.5, 0, 10)', expected: 5.5 },
+			// RandRange is non-deterministic by nature, so this checks the result lands in range rather than pinning an exact value
+			{ code: 'x := RandRange(1, 10)\nresult := 0\nif (x >= 1) { if (x <= 10) { result := 1 } }\nprint(result)', expected: '1' },
+
+			// array utilities: IndexOf / Pop / Shift / Unshift / Concat / First / Last / Shuffle
+			{ code: 'IndexOf([10,20,30], 20)', expected: 1 },
+			{ code: 'IndexOf([10,20,30], 99)', expected: -1 },
+			{ code: 'IndexOf(["a","b","c"], "b")', expected: 1 },
+			{ code: 'arr := [1,2,3]\nprint(Pop(arr))', expected: '3' }, // Pop returns the removed element (Push returns the array instead)
+			{ code: 'arr := [1,2,3]\nPop(arr)\nprint(arr)', expected: '1,2' }, // and it mutates the array in place, same as Push
+			{ code: 'arr := [1,2,3]\nprint(Shift(arr))', expected: '1' },
+			{ code: 'arr := [1,2,3]\nShift(arr)\nprint(arr)', expected: '2,3' },
+			{ code: 'arr := [1,2,3]\nprint(Unshift(arr, 0))', expected: '0,1,2,3' }, // Unshift returns the (mutated) array, same shape as Push
+			{ code: 'Concat([1,2],[3,4])', expected: ["1", "2", "3", "4"] },
+			{ code: 'First([1,2,3])', expected: '1' },
+			{ code: 'Last([1,2,3])', expected: '3' },
+			// Shuffle is non-deterministic, so these check the multiset is preserved rather than pinning an exact order
+			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Count(a))', expected: '5' },
+			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Sum(a))', expected: '15' },
+
+			// string utilities: Left / Right / Capitalize
+			{ code: 'Left("Hello World", 5)', expected: 'Hello' },
+			{ code: 'Right("Hello World", 5)', expected: 'World' },
+			{ code: 'Right("Hi", 10)', expected: 'Hi' }, // asking for more than the string has just returns the whole thing
+			{ code: 'Right("Hello", 0)', expected: '' }, // 0 has to be special-cased - slice(-0) is the same as slice(0), which would return the whole string
+			{ code: 'Capitalize("hELLO")', expected: 'Hello' },
+			{ code: 'Capitalize("")', expected: '' },
+
+			// object utilities: HasKey / Merge
+			{ code: 'HasKey({"a":"1"}, "a")', expected: 1 },
+			{ code: 'HasKey({"a":"1"}, "b")', expected: 0 },
+			{ code: 'HasKey({"a":"1"}, "toString")', expected: 0 }, // inherited prototype methods don't count as keys
+			{ code: 'Merge({"a":"1"}, {"b":"2"})', expected: { a: '1', b: '2' } },
+			{ code: 'Merge({"a":"1"}, {"a":"2"})', expected: { a: '2' } }, // 2nd object wins on key conflicts
+
+			// IsEmpty - works across strings, arrays and objects
+			{ code: 'IsEmpty("")', expected: 1 },
+			{ code: 'IsEmpty("x")', expected: 0 },
+			{ code: 'IsEmpty([])', expected: 1 },
+			{ code: 'IsEmpty([1])', expected: 0 },
+			{ code: 'IsEmpty({"a":"1"})', expected: 0 }, // can't test the true empty-object case - {} itself doesn't parse in this language
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or
@@ -2791,10 +2845,12 @@ async INTERNAL_Rem(ast) {
 		let string = values[0];
 		let regex = values[1];
 		let replace = values[2];
-		// First-match-only is intentional here (Repl("Hello","l","L") -> "HeLlo"
-		// is an existing, correct assertion below) - Strepl is the all-in-one
-		// literal replace, this one is meant for a single targeted swap.
-		return string.replace(new RegExp(regex), replace);
+		// 4th param (optional) = Recursive: falsy/absent replaces only the
+		// first match (Repl("Hello","l","L") -> "HeLlo"); truthy replaces
+		// every match, same as adding the 'g' flag by hand
+		// (Repl("Hello","l","L",1) -> "HeLLo")
+		let recursive = values[3];
+		return string.replace(new RegExp(regex, recursive ? 'g' : ''), replace);
 	}
 	async INTERNAL_Grep(ast) {
 		//this.print(`${this.getFunctionName()}`);
@@ -3234,6 +3290,149 @@ async INTERNAL_Rem(ast) {
 		} else {
 			throw new Error("INTERNAL_Push: Expected an array or string as the first argument");
 		}
+	}
+	async INTERNAL_Mod(ast) {
+		// fills a real gap - there's no % operator anywhere in the language
+		let values = await this.execute_ast(ast);
+		let a = this.numeric(values[0]);
+		let b = this.numeric(values[1]);
+		return a % b;
+	}
+	async INTERNAL_Sign(ast) {
+		let values = await this.execute_ast(ast);
+		return Math.sign(this.numeric(values[0]));
+	}
+	async INTERNAL_Clamp(ast) {
+		let values = await this.execute_ast(ast);
+		let n = this.numeric(values[0]);
+		let min = this.numeric(values[1]);
+		let max = this.numeric(values[2]);
+		return Math.min(Math.max(n, min), max);
+	}
+	async INTERNAL_RandRange(ast) {
+		let values = await this.execute_ast(ast);
+		let min = this.numeric(values[0]);
+		let max = this.numeric(values[1]);
+		return Math.floor(Math.random() * (max - min + 1)) + min;
+	}
+	async INTERNAL_IndexOf(ast) {
+		let values = await this.execute_ast(ast);
+		let array = this.unbox(values[0]);
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_IndexOf: Expected an array as the first argument");
+		}
+		return array.findIndex(v => String(v) === String(values[1]));
+	}
+	async INTERNAL_Pop(ast) {
+		// mutates in place and returns the removed element, mirroring how
+		// every other language's pop() works (Push instead returns the array)
+		let values = await this.execute_ast(ast);
+		let array = values[0];
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_Pop: Expected an array as the argument");
+		}
+		return array.pop();
+	}
+	async INTERNAL_Shift(ast) {
+		// same as Pop but off the front - mutates in place, returns the element
+		let values = await this.execute_ast(ast);
+		let array = values[0];
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_Shift: Expected an array as the argument");
+		}
+		return array.shift();
+	}
+	async INTERNAL_Unshift(ast) {
+		// prepends, mutates in place, returns the array - same shape as Push
+		let values = await this.execute_ast(ast);
+		let array = values[0];
+		let element = values[1];
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_Unshift: Expected an array as the first argument");
+		}
+		array.unshift(element);
+		return array;
+	}
+	async INTERNAL_Concat(ast) {
+		let values = await this.execute_ast(ast);
+		let a = this.unbox(values[0]);
+		let b = this.unbox(values[1]);
+		if (!Array.isArray(a) || !Array.isArray(b)) {
+			throw new Error("INTERNAL_Concat: Expected two arrays");
+		}
+		return a.concat(b);
+	}
+	async INTERNAL_First(ast) {
+		let values = await this.execute_ast(ast);
+		let array = this.unbox(values[0]);
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_First: Expected an array as the argument");
+		}
+		return array[0];
+	}
+	async INTERNAL_Last(ast) {
+		let values = await this.execute_ast(ast);
+		let array = this.unbox(values[0]);
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_Last: Expected an array as the argument");
+		}
+		return array[array.length - 1];
+	}
+	async INTERNAL_Shuffle(ast) {
+		let values = await this.execute_ast(ast);
+		let array = this.unbox(values[0]);
+		if (!Array.isArray(array)) {
+			throw new Error("INTERNAL_Shuffle: Expected an array as the argument");
+		}
+		let out = array.slice();
+		for (let i = out.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[out[i], out[j]] = [out[j], out[i]];
+		}
+		return out;
+	}
+	async INTERNAL_Left(ast) {
+		let values = await this.execute_ast(ast);
+		return String(values[0]).slice(0, values[1]);
+	}
+	async INTERNAL_Right(ast) {
+		let values = await this.execute_ast(ast);
+		let str = String(values[0]);
+		let n = values[1];
+		return n <= 0 ? '' : str.slice(-n);
+	}
+	async INTERNAL_Capitalize(ast) {
+		let values = await this.execute_ast(ast);
+		let str = String(values[0]);
+		if (!str.length) return str;
+		return str[0].toUpperCase() + str.slice(1).toLowerCase();
+	}
+	async INTERNAL_HasKey(ast) {
+		let values = await this.execute_ast(ast);
+		let obj = this.unbox(values[0]);
+		if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+			throw new Error("INTERNAL_HasKey: Expected an object as the first argument");
+		}
+		return Object.prototype.hasOwnProperty.call(obj, values[1]) ? 1 : 0;
+	}
+	async INTERNAL_Merge(ast) {
+		let values = await this.execute_ast(ast);
+		let a = this.unbox(values[0]);
+		let b = this.unbox(values[1]);
+		if (typeof a !== 'object' || a === null || Array.isArray(a) || typeof b !== 'object' || b === null || Array.isArray(b)) {
+			throw new Error("INTERNAL_Merge: Expected two objects");
+		}
+		return { ...a, ...b };
+	}
+	async INTERNAL_IsEmpty(ast) {
+		let values = await this.execute_ast(ast);
+		let value = values[0];
+		// no unbox()/Core() here on purpose - Core("") coerces the empty
+		// string to the number 0 (since Number("") === 0), which would
+		// make String(value).length come back as 1 ("0") instead of 0
+		if (Array.isArray(value)) return value.length === 0 ? 1 : 0;
+		if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0 ? 1 : 0;
+		return String(value).length === 0 ? 1 : 0;
 	}
 	async INTERNAL_Purge(ast) {
 		// Get the value from the AST
@@ -3776,7 +3975,7 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'   	,	'Power	      	'	,	'N,P'		,	'> [num] N raised to power P ' ,   
 			 '✓'   	,	'Sqrt		    '	,  	'N'			,	'> [num] square root of N ' ,   
 			 '?' 	,	'Rem    		' 	,	'H,N'		,	'> [str] returns regex N from H ' ,  
-			 '?' 	,	'Repl       	'	,  	'H,N,R'		,	'> [str] replaces regex N with R from H ' ,    
+			 '✓' 	,	'Repl       	'	,  	'H,N,R [,Rec]'		,	'> [str] replaces regex N with R in H, [Rec = 1 to replace every match, not just the first] ' ,    
 			 '!'   	,	'Grep	        '	,  	'P,T'		,	'> [str] returns lines containing P from T ' ,  
 			 '!'   	,	'Trunc	      	'	,	'N,S'		,	'> [num] returns float N to S decimal places ' ,  
 			 '✓'   	,	'StrSplit	    '	,  	'H,N'		,	'> [arr] splits H by N char' ,  
@@ -3839,7 +4038,25 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'Use				'	,	'M'		,	'> [str] requires node module M and hangs it off a var' ,
 			 '✓'  	,	'Exec			'	,	'S'		,	'> [any] parses and runs S as coyote in this scope' ,
 			 '✓'  	,	'Solve			'	,	'V'		,	'> [any] forces a pending var chain to work itself out' ,
-			 '✓'  	,	'Tree			'	,	'V'		,	'> [|||] prints the pending AST behind a var'
+			 '✓'  	,	'Tree			'	,	'V'		,	'> [|||] prints the pending AST behind a var' ,
+			 '✓'  	,	'Mod			'	,	'N,D'		,	'> [num] remainder of N divided by D (there is no % operator)' ,
+			 '✓'  	,	'Sign			'	,	'N'		,	'> [num] -1, 0 or 1 depending on the sign of N' ,
+			 '✓'  	,	'Clamp			'	,	'N,Min,Max'		,	'> [num] N pinned between Min and Max' ,
+			 '✓'  	,	'RandRange		'	,	'Min,Max'		,	'> [num] random whole number between Min and Max (inclusive)' ,
+			 '✓'  	,	'IndexOf		'	,	'A,N'		,	'> [num] index of N in A, or -1 if not found' ,
+			 '✓'  	,	'Pop			'	,	'A'		,	'> [any] removes and returns the last element of A' ,
+			 '✓'  	,	'Shift			'	,	'A'		,	'> [any] removes and returns the first element of A' ,
+			 '✓'  	,	'Unshift		'	,	'A,E'		,	'> [arr] adds E to the front of A' ,
+			 '✓'  	,	'Concat			'	,	'A,B'		,	'> [arr] A and B joined into one new array' ,
+			 '✓'  	,	'First			'	,	'A'		,	'> [any] first element of A' ,
+			 '✓'  	,	'Last			'	,	'A'		,	'> [any] last element of A' ,
+			 '✓'  	,	'Shuffle		'	,	'A'		,	'> [arr] A with its elements in random order' ,
+			 '✓'  	,	'Left			'	,	'S,N'		,	'> [str] first N chars of S' ,
+			 '✓'  	,	'Right			'	,	'S,N'		,	'> [str] last N chars of S' ,
+			 '✓'  	,	'Capitalize		'	,	'S'		,	'> [str] S with its first letter uppercase, the rest lowercase' ,
+			 '✓'  	,	'HasKey			'	,	'O,K'		,	'> [num] 1 or 0 if object O has key K' ,
+			 '✓'  	,	'Merge			'	,	'O1,O2'		,	'> [obj] O1 and O2 combined, O2 wins on key conflicts' ,
+			 '✓'  	,	'IsEmpty		'	,	'V'		,	'> [num] 1 or 0 if V (string/array/object) is empty'
 			])], 3));
 	}
 	async INTERNAL_PrintScript(ast) {
