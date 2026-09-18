@@ -2312,7 +2312,7 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		let retval = "";
 		let name = "INTERNAL_" + ast.name;
-		let correct_case_key = Object.getOwnPropertyNames(ASTExecutor.prototype).find(k => typeof this[k] === 'function' && k.toLowerCase() === name.toLowerCase());
+		let correct_case_key = this.methods[name.toLowerCase()]; // was doing a full Object.getOwnPropertyNames(...).find() scan over every prototype method on every single function call
 		if (correct_case_key) {
 			this.print(correct_case_key)
 			retval = await this[correct_case_key](ast.params);
