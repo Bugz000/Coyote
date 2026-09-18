@@ -7,7 +7,7 @@ angleA := 0.0
 angleB := 0.0
 vertices := [[-S,-S,-S],[S,-S,-S],[S,S,-S],[-S,S,-S],[-S,-S,S],[S,-S,S],[S,S,S],[-S,S,S]]
 edges := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
-Loop (50) {
+Loop (250) {
     pxs := []
     pys := []
     Loop (vertices) {
@@ -34,14 +34,8 @@ Loop (50) {
     }
     angleA := angleA + 0.08
     angleB := angleB + 0.12
-    Sleep(30)
-}
 
-PrintScript("script.txt")
-PrintAST("ast.txt")
-clear()
-PrintAST()
-DumpRAM("ram.txt")
+}
 
 ProjX(x, y, z, a, b, scl, width) {
     yR := y * Cos(a) - z * Sin(a)
