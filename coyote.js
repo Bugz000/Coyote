@@ -94,6 +94,7 @@ var ItemType;
 	ItemType[ItemType["LOOP"] = 2] = "LOOP";
 	ItemType[ItemType["FOR"] = 31] = "FOR";
 	ItemType[ItemType["BREAK"] = 32] = "BREAK";
+	ItemType[ItemType["CONTINUE"] = 41] = "CONTINUE";
 	ItemType[ItemType["RETURN"] = 3] = "RETURN";
 	ItemType[ItemType["FUNCTION_DEFINITION"] = 4] = "FUNCTION_DEFINITION";
 	ItemType[ItemType["STATEMENT_MAX"] = 5] = "STATEMENT_MAX";
@@ -323,6 +324,7 @@ class CoyoteParser extends Parser {
 			.or(() => this.parse_statement_loop())
 			.or(() => this.parse_statement_return())
 			.or(() => this.parse_statement_break())
+			.or(() => this.parse_statement_continue())
 			.or(() => this.parse_statement_directive())
 			.or(() => this.parse_statement_class_definition())
 			.or(() => this.parse_statement_assignment())
@@ -588,6 +590,12 @@ class CoyoteParser extends Parser {
 			return this.not_found();
 		}
 		return this.found({type: ItemType.BREAK});
+	}
+	parse_statement_continue() {
+		if (this.scan(KEYWORD_CONTINUE).not_found()) {
+			return this.not_found();
+		}
+		return this.found({type: ItemType.CONTINUE});
 	}
 	parse_statement_function_definition() {
 		this.log('parse_statement_function_definition');
@@ -1246,7 +1254,7 @@ function convert_statement(s) {
 			}] : []
 		};
 	}
-	if (s.type === ItemType.BREAK) {
+	if (s.type === ItemType.BREAK || s.type === ItemType.CONTINUE) {
 		return {
 			name: chalk.cyan(ItemType[s.type]),
 		};
@@ -1542,6 +1550,8 @@ class ASTExecutor {
 		this.parent = parent;
 		this.vars = {};
 		this.returning = false;
+		this.breaking = false;
+		this.continuing = false;
 		this.returned = undefined;
 		this.localfuncvars = {};
 		this.functions = parent ? parent.functions : {};
@@ -2059,6 +2069,105 @@ class ASTExecutor {
 			{ code: 'result := ""\nloop (3) { result := result . "x" }\nprint(result)', expected: 'xxx' },
 			{ code: 'count := 0\nloop (5) { count++\nif (count == 3) { break } }\nprint(count)', expected: '3' }, // break stops the loop early
 			{ code: 'outer := 0\nloop (3) { inner := 0\nloop (3) { inner++ }\nouter := outer + inner }\nprint(outer)', expected: '9' }, // nested loops
+			
+			// break through nested ifs and blocks
+			{ code: 'n := 0\nloop (10) { n++\nif (n > 2) { if (n == 4) { break } } }\nprint(n)', expected: '4' }, // break through two levels of if
+			{ code: 'n := 0\nloop (10) { n++\nif (n > 1) { if (n > 2) { if (n == 5) { break } } } }\nprint(n)', expected: '5' }, // three levels deep
+			{ code: 's := ""\nloop (5) { if (A_Index == 3) { break }\ns := s . A_Index }\nprint(s)', expected: '12' }, // break skips the rest of its own block, not just the next pass
+			{ code: 's := ""\nloop (5) { if (A_Index == 3) { s := s . "x"\nbreak\ns := s . "y" }\ns := s . A_Index }\nprint(s)', expected: '12x' }, // and the rest of the if block it sits in
+			{ code: 'n := 0\nloop (10) { n++\nif (n == 3) { print("three") } else { if (n == 4) { break } } }\nprint(n)', expected: 'three\n4' }, // break in an else branch
+			{ code: 'n := 0\nloop (10) { n++\nif (n == 2)\nbreak }\nprint(n)', expected: '2' }, // brace-less if
+			{ code: 's := "a"\nloop ([]) { break\ns := "b" }\nprint(s)', expected: 'a' }, // a loop over nothing never sees the break
+			{ code: 'n := 0\nloop (3) { break }\nprint("after")', expected: 'after' }, // break is spent by the loop, the script carries on
+			{ code: 'n := 0\nloop (5) { n++\nbreak }\nprint(n)', expected: '1' }, // unconditional break on the first pass
+			{ code: 't := 0\nloop (3) { loop (5) { if (A_Index == 2) { break }\nt++ } }\nprint(t)', expected: '3' }, // break only leaves the innermost loop
+			{ code: 'a := 0\nb := 0\nloop (5) { a++\nif (a == 2) { break } }\nloop (5) { b++ }\nprint(a . "," . b)', expected: '2,5' }, // a spent break does not leak into the next loop
+			{ code: 'sum := 0\nloop ([5,6,7,8]) { if (A_Val == 7) { break }\nsum := sum + A_Val }\nprint(sum)', expected: '11' }, // break over an array
+			{ code: 's := ""\nloop ("abcd") { if (A_Val == "c") { break }\ns := s . A_Val }\nprint(s)', expected: 'ab' }, // break over a string
+			{ code: 's := ""\nloop ({"a": 1, "b": 2, "c": 3}) { if (A_Key == "c") { break }\ns := s . A_Key }\nprint(s)', expected: 'ab' }, // break over an object
+			{ code: 'BREAK_TEST := 0\nloop (3) { BREAK_TEST++\nBreak }\nprint(BREAK_TEST)', expected: '1' }, // keywords are case-insensitive
+			
+			// continue
+			{ code: 's := ""\nloop (5) { if (A_Index == 3) { continue }\ns := s . A_Index }\nprint(s)', expected: '1245' }, // continue skips just that pass
+			{ code: 's := ""\nloop (6) { if (A_Index > 1) { if (A_Index < 5) { continue } }\ns := s . A_Index }\nprint(s)', expected: '156' }, // continue through two levels of if
+			{ code: 'n := 0\nloop (4) { continue\nn++ }\nprint(n)', expected: '0' }, // nothing after a continue runs
+			{ code: 'iters := 0\nloop (5) { iters++\ncontinue }\nprint(iters)', expected: '5' }, // continue still lets the loop run every pass
+			{ code: 's := ""\nloop (5) { if (A_Index == 2) { s := s . "x" } else { continue }\ns := s . "y" }\nprint(s)', expected: 'xy' }, // continue in an else branch
+			{ code: 's := ""\nloop (5) { if (A_Index == 2) { continue\ns := s . "x" }\ns := s . A_Index }\nprint(s)', expected: '1345' }, // the rest of the if block it sits in is skipped too
+			{ code: 's := ""\nloop (10) { if (A_Index == 2) { continue }\nif (A_Index == 5) { break }\ns := s . A_Index }\nprint(s)', expected: '134' }, // continue and break together
+			{ code: 's := ""\nloop (3) { s := s . A_Index\nloop (3) { if (A_Index == 2) { continue }\ns := s . "x" } }\nprint(s)', expected: '1xx2xx3xx' }, // continue only affects the innermost loop
+			{ code: 'loop (3) { continue }\nprint("after")', expected: 'after' }, // continue is spent by the loop, the script carries on
+			{ code: 'n := 0\nloop (3) { continue }\nloop (3) { n++ }\nprint(n)', expected: '3' }, // a spent continue does not leak into the next loop
+			{ code: 's := ""\nloop (["a","b","c"]) { if (A_Val == "b") { continue }\ns := s . A_Val }\nprint(s)', expected: 'ac' }, // continue over an array
+			{ code: 's := ""\nloop ("abc") { if (A_Val == "b") { continue }\ns := s . A_Val }\nprint(s)', expected: 'ac' }, // continue over a string
+			{ code: 's := ""\nloop ({"a": 1, "b": 2, "c": 3}) { if (A_Key == "b") { continue }\ns := s . A_Key }\nprint(s)', expected: 'ac' }, // continue over an object
+			{ code: 's := ""\nloop (3) { s := s . A_Index\nContinue\ns := s . "x" }\nprint(s)', expected: '123' }, // keywords are case-insensitive
+			
+			// neither is swallowed by names that merely start with the keyword
+			{ code: 'breakfast := 1\ncontinued := 2\nbreaker := 3\ncontinue_count := 4\nprint(breakfast + continued + breaker + continue_count)', expected: '10' }, // keyword regexes stop at a word boundary
+			{ code: 'breakfast := 5\nloop (3) { breakfast++ }\nprint(breakfast)', expected: '8' }, // a variable that starts with break is still a variable
+			
+			// a plain string "BREAK" is just a string
+			{ code: 'n := 0\nloop (3) { x := "BREAK"\nn++ }\nprint(n)', expected: '3' }, // the old sentinel
+			{ code: 'n := 0\nloop (3) { "BREAK"\nn++ }\nprint(n)', expected: '3' }, // as a bare expression statement
+			{ code: 'n := 0\nloop (3) { print("BREAK")\nn++ }\nprint(n)', expected: 'BREAK\nBREAK\nBREAK\n3' }, // printed
+			{ code: 'f() { return "BREAK" }\nn := 0\nloop (3) { r := f()\nn++ }\nprint(n . r)', expected: '3BREAK' }, // returned from a function
+			{ code: 'n := 0\nloop (["BREAK", "BREAK", "BREAK"]) { n++ }\nprint(n)', expected: '3' }, // as array items being looped over
+			{ code: 'n := 0\nloop (3) { x := "break"\ny := "Continue"\nn++ }\nprint(n)', expected: '3' }, // and the lower-case keywords as strings
+			{ code: 'n := 0\nloop (3) { if (1) { "BREAK" }\nn++ }\nprint(n)', expected: '3' }, // as the last value of an if block
+			{ code: 'x := "BREAK"\nprint(x)', expected: 'BREAK' }, // outside a loop
+			
+			// break / continue inside a function called from a loop
+			{ code: 'f() { break }\nn := 0\nloop (3) { f()\nn++ }\nprint(n)', expected: '3' }, // a stray break in a function can't reach the caller's loop
+			{ code: 'f() { continue\nreturn 1 }\nn := 0\nloop (3) { f()\nn++ }\nprint(n)', expected: '3' }, // a stray continue can't either
+			{ code: 'f() { if (1) { break } }\nn := 0\nloop (3) { r := f()\nn++ }\nprint(n)', expected: '3' }, // nested inside an if in the function
+			{ code: 'f() { break\nreturn 5 }\nprint(f() == 5)', expected: 'false' }, // a stray break ends the function body, the return after it never runs
+			{ code: 'firstOver(limit) { r := 0\nloop (10) { r++\nif (r == limit) { break } }\nreturn r }\ntotal := 0\nloop (3) { total := total + firstOver(4) }\nprint(total)', expected: '12' }, // a function's own loop breaking leaves the caller's loop alone
+			{ code: 'skipOdd(max) { s := ""\nloop (max) { if (isODD(A_Index)) { continue }\ns := s . A_Index }\nreturn s }\nout := ""\nloop (2) { out := out . skipOdd(6) . "|" }\nprint(out)', expected: '246|246|' }, // same with continue
+			{ code: 'f() { loop (5) { break }\nreturn "done" }\nprint(f())', expected: 'done' }, // the function carries on after its own loop breaks
+			{ code: 'f() { loop (5) { continue }\nreturn "done" }\nprint(f())', expected: 'done' }, // and after its own loop continues
+			{ code: 'f(n) { if (n == 0) { return 0 }\nloop (3) { if (A_Index == 2) { break } }\nreturn n + f(n - 1) }\nprint(f(4))', expected: '10' }, // break inside a recursive function
+			
+			// return inside a loop
+			{ code: 'find(x) { loop (10) { if (A_Index == x) { return A_Index * 10 } }\nreturn -1 }\nprint(find(3))', expected: '30' }, // return leaves the loop and the function
+			{ code: 'find(x) { loop (10) { if (A_Index == x) { return A_Index * 10 } }\nreturn -1 }\nprint(find(11))', expected: '-1' }, // no hit, falls through to the last return
+			{ code: 'f() { loop (3) { loop (3) { if (A_Index == 2) { return "hit" } } }\nreturn "miss" }\nprint(f())', expected: 'hit' }, // return out of two loops
+			{ code: 'f() { n := 0\nloop (5) { n++\nif (n == 2) { continue }\nif (n == 4) { return n } }\nreturn "miss" }\nprint(f())', expected: '4' }, // return after a continue
+			{ code: 'f() { n := 0\nloop (5) { n++\nif (n == 2) { break } }\nreturn n }\nprint(f())', expected: '2' }, // return after a break
+			{ code: 'f() { loop (["a","b","c"]) { if (A_Val == "b") { return A_Key } } }\nprint(f())', expected: '1' }, // return from an array loop
+			{ code: 'f() { loop (3) { return "first" }\nreturn "second" }\nprint(f())', expected: 'first' }, // unconditional return in a loop
+			{ code: 'f() { loop (3) { if (A_Index == 2) { continue }\nif (A_Index == 3) { return "three" } }\nreturn "none" }\nn := 0\nloop (2) { n++\nx := f() }\nprint(n . x)', expected: '2three' }, // a return in a function's loop doesn't end the caller's loop
+			
+			// Exec borrows the scope, so a stray break in the string shouldn't latch onto it
+			{ code: 'n := 0\nloop (3) { Exec("break")\nn++ }\nprint(n)', expected: '3' }, // a break in an Exec string is just spent inside it
+			{ code: 'Exec("break")\nprint("after")', expected: 'after' }, // even at the top level of the script
+			{ code: 'Exec("continue")\nprint("after")', expected: 'after' }, // same for continue
+			{ code: 'Exec("loop (5) { if (A_Index == 3) { break } }")\nprint("after")', expected: 'after' }, // a whole loop inside an Exec string
+			{ code: 'n := 0\nloop (3) { Exec("loop (5) { if (A_Index == 2) { continue } }")\nn++ }\nprint(n)', expected: '3' }, // and inside a loop
+			
+			// instances are persistent scopes - a stray break/continue mustn't stick to one
+			{ code: 'class T { stray() { break }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nt.stray()\nprint(t.val())', expected: '3' }, // stray break in a method
+			{ code: 'class T { stray() { continue }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nt.stray()\nprint(t.val())', expected: '3' }, // stray continue in a method
+			{ code: 'class T { __init() { break\nx := 5 }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nprint(t.val())', expected: '3' }, // stray break in __init
+			{ code: 'class T { run() { n := 0\nloop (5) { n++\nif (n == 3) { break } }\nreturn n } }\nt := new T()\nprint(t.run())\nprint(t.run())', expected: '3\n3' }, // a loop with break inside a method, twice
+			{ code: 'class T { run() { s := ""\nloop (5) { if (A_Index == 2) { continue }\ns := s . A_Index }\nreturn s } }\nt := new T()\nprint(t.run())', expected: '1345' }, // a loop with continue inside a method
+			{ code: 'class T { find(x) { loop (5) { if (A_Index == x) { return "hit" } }\nreturn "miss" } }\nt := new T()\nprint(t.find(2) . t.find(9))', expected: 'hitmiss' }, // return from a loop inside a method
+			{ code: 'class T { stray() { break } }\nt := new T()\nn := 0\nloop (3) { t.stray()\nn++ }\nprint(n)', expected: '3' }, // a stray break in a method can't reach the caller's loop
+			
+			// bare return (no value) used to crash the executor
+			{ code: 'f() { return\nx := 1 }\nf()\nprint("ok")', expected: 'ok' }, // bare return at the top of a function
+			{ code: 'f() { loop (3) { return } }\nf()\nprint("ok")', expected: 'ok' }, // bare return inside a loop
+			{ code: 'f() { n := 0\nloop (5) { n++\nif (n == 3) { return } }\nreturn "no" }\nprint(f() == "no")', expected: 'false' }, // bare return in nested if in a loop still stops the function
+			{ code: 'f() { return }\nprint(f() . "|")', expected: '0|' }, // and hands back the same nothing an empty function does
+			
+			// loops as they already were, just never covered
+			{ code: 'loop ([10, 20]) { print(A_Index . ":" . A_Key . ":" . A_Val) }\nprint("end")', expected: '1:0:10\n2:1:20\nend' }, // array loop sets A_Index, A_Key and A_Val
+			{ code: 'n := 0\nloop ([]) { n++ }\nprint(n)', expected: '0' }, // empty array
+			{ code: 'n := 0\nloop ("3") { n++ }\nprint(n)', expected: '3' }, // a numeric string counts
+			{ code: 's := ""\nloop ("ab") { s := s . A_Index . A_Val }\nprint(s)', expected: '1a2b' }, // string loop
+			{ code: 's := ""\nloop ({"x": 1, "y": 2}) { s := s . A_Key . A_Val }\nprint(s)', expected: 'x1y2' }, // object loop
+			{ code: 's := ""\nloop (2) { loop (2) { s := s . A_Index } }\nprint(s)', expected: '1212' }, // A_Index restarts for the inner loop and the outer one picks itself back up
+			{ code: 'n := 0\nloop (5) { n++\nif (n == 2) { break } else { continue } }\nprint(n)', expected: '2' }, // break and continue either side of one if/else
 
 			// arrays and objects
 			{ code: 'arr := [10, 20, 30]\nprint(arr[1])', expected: '20' },
@@ -2247,9 +2356,9 @@ class ASTExecutor {
 			}
 			return false;
 		};
-		const assert = async (assertions) => {
+		const assert = async (assertions, run = (code) => this.assert_code(code)) => {
 			for (const { code, expected } of assertions) {
-				const result = await this.assert_code(code);
+				const result = await run(code);
 				const isSuccess = deepEqual(result, expected);
 				if (!isSuccess) {
 					console.log(chalk.red(`Assertion failed: ${code}`));
@@ -2262,6 +2371,14 @@ class ASTExecutor {
 			}
 		};
 		await assert(assertions);
+		// parser-level: what the tree printer makes of the source (colours stripped)
+		await assert([
+			{ code: 'loop (2) { break }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─BREAK\n' },
+			{ code: 'loop (2) { continue }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─CONTINUE\n' },
+			{ code: 'loop (2) { CONTINUE }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─CONTINUE\n' }, // keyword is case-insensitive
+			{ code: 'loop (2) { if (1) { break } else { continue } }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─IF\n      ├─condition\n      │ └─1\n      ├─if_true\n      │ └─BREAK\n      └─if_false\n        └─CONTINUE\n' },
+			{ code: 'continued := 1', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR continued\n  └─right\n    └─1\n' }, // not a CONTINUE
+		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		//     Format(N) {       
 		//     Print(S) {        
 		//     Clear(/) {        
@@ -2543,9 +2660,6 @@ class ASTExecutor {
     async ASS(ast) {
         if (ast.type >= 0) {
             const DICK = ItemType[ast.type];
-            if (DICK === "BREAK") {
-                return;
-            }
             const CUNT = this.methods[DICK.toLowerCase()];
             if (CUNT && typeof this[CUNT] === 'function') {
                 return await this[CUNT](ast);
@@ -2641,6 +2755,7 @@ class ASTExecutor {
 		// You can now return or execute AST with the collected functions
 		// For now, return the functions for further processing if needed
 		this.returning = false;
+		this.breaking = this.continuing = false;
 		return await this.execute_ast(ast.statements);;
 	}
 	async execute_ast(ast) {
@@ -2650,13 +2765,11 @@ class ASTExecutor {
 		if (Array.isArray(ast)) {
 			const results = [];
 			for (const element of ast) {
-				if (element.type === 32) {
-					return "BREAK";
-				}
 				results.push(await this.ASS(element));
 				// a return anywhere in a block kills the rest of that block and
-				// carries its value up to whoever called the function
-				if (this.returning) {
+				// carries its value up to whoever called the function. break and
+				// continue do the same up to the nearest loop, which clears them
+				if (this.returning || this.breaking || this.continuing) {
 					break;
 				}
 			}
@@ -2816,6 +2929,7 @@ class ASTExecutor {
 			}
 			await instance.execute_ast(init.statements);
 			instance.returning = false;
+			instance.breaking = instance.continuing = false;
 			instance.returned = undefined;
 		}
 		return { __class__: classDef.name, __instance__: instance };
@@ -2829,9 +2943,13 @@ class ASTExecutor {
 			if (!isNaN(parsedInt)) countResult = parsedInt;
 		}
 		const breakCheck = async () => {
-			const out = await this.execute_ast(ast.statements);
-			// a return inside a loop has to take the loop with it
-			return this.returning || out.includes('BREAK');
+			await this.execute_ast(ast.statements);
+			// continue only ever ends the current pass and break ends the
+			// loop, so both are spent here. a return inside a loop has to
+			// take the loop with it
+			const broke = this.breaking;
+			this.breaking = this.continuing = false;
+			return this.returning || broke;
 		};
 		if (typeof countResult === "number") {
 			const step = countResult >= 1 ? 1 : -1;
@@ -2853,14 +2971,18 @@ class ASTExecutor {
 	}
 	async RETURN(ast){ // 3
 		//this.print(`${this.getFunctionName()}`);
-		const value = await this.execute_ast(ast.expression)
+		const value = ast.expression ? await this.execute_ast(ast.expression) : undefined
 		this.returning = true
 		this.returned = value
 		return value
 	}
 	async BREAK(ast){ // 32
 		//this.print(`${this.getFunctionName()}`);
-		return "BREAK"
+		this.breaking = true
+	}
+	async CONTINUE(ast){ // 41
+		//this.print(`${this.getFunctionName()}`);
+		this.continuing = true
 	}
 	async variable(ast) { //26
 		//this.print(`${this.getFunctionName()}`);
@@ -2965,6 +3087,7 @@ class ASTExecutor {
 				const body = await instance.execute_ast(method.statements);
 				const retval = instance.returning ? this.Core(instance.returned) : this.Core(this.removeUndefined(body)[0]);
 				instance.returning = false;
+				instance.breaking = instance.continuing = false;
 				instance.returned = undefined;
 				return retval;
 			}
@@ -4302,10 +4425,13 @@ async INTERNAL_IsFloat(ast) {
 		// found, otherwise a top level return in the string latches on and
 		// every block after it stops dead at its first statement
 		const mark = this.returning;
+		const loopmark = [this.breaking, this.continuing];
 		this.returning = false;
+		this.breaking = this.continuing = false;
 		const body = await this.execute_ast(tree.statements);
 		const value = this.returning ? this.returned : this.removeUndefined(body)[0];
 		this.returning = mark;
+		[this.breaking, this.continuing] = loopmark;
 		return this.Core(value);
 	}
 	async INTERNAL_credits() {
