@@ -68,6 +68,7 @@ const OPERATOR_RBRACKET = new StringToken(']', 'Closes an array literal or index
 const OPERATOR_COMMA = new StringToken(',', 'Separates function arguments or list/object items');
 const OPERATOR_COLON = new StringToken(':', 'Separates a key from its value in an object literal');
 const OPERATOR_DOT = new StringToken('.', 'Member access (`x.foo`), also doubled as `..` for string append');
+const OPERATOR_PERCENT = new StringToken('%', 'Dynamic variable dereference - %name% or %(expr)%');
 const LITERAL_NUMBER = new RegexToken(/-?[0-9]+(\.[0-9]+)?/, 'Numeric literal, e.g. `42` or `3.14`');
 const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i, 'Boolean literal, `true` or `false` (case-insensitive)');
 const LITERAL_STRING = new RegexToken(/"[^"]*"/, 'Double-quoted string literal');
@@ -79,6 +80,9 @@ const KEYWORD_FOR = new RegexToken(/for\b/i, 'Begins a for-in loop');
 const KEYWORD_BREAK = new RegexToken(/break\b/i, 'Exits the innermost loop immediately');
 const KEYWORD_CONTINUE = new RegexToken(/continue\b/i, 'Skips to the next iteration of the innermost loop');
 const KEYWORD_RETURN = new RegexToken(/return\b/i, 'Returns a value from a function');
+const KEYWORD_CLASS = new RegexToken(/class\b/i, 'Begins a class definition');
+const KEYWORD_NEW = new RegexToken(/new\b/i, 'Constructs a new instance of a class');
+const OPERATOR_HASH = new StringToken('#', 'Begins a top-of-script directive - #Name(args)');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
 const NEWLINE = new RegexToken(/\r?\n/);
@@ -124,6 +128,10 @@ var ItemType;
 	ItemType[ItemType["MEMBER_ACCESS"] = 29] = "MEMBER_ACCESS";
 	ItemType[ItemType["METHOD_CALL"] = 30] = "METHOD_CALL";
 	ItemType[ItemType["VALUE"] = 36] = "VALUE";
+	ItemType[ItemType["DEREF"] = 37] = "DEREF";
+	ItemType[ItemType["DIRECTIVE"] = 38] = "DIRECTIVE";
+	ItemType[ItemType["CLASS_DEFINITION"] = 39] = "CLASS_DEFINITION";
+	ItemType[ItemType["NEW_INSTANCE"] = 40] = "NEW_INSTANCE";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -315,6 +323,8 @@ class CoyoteParser extends Parser {
 			.or(() => this.parse_statement_loop())
 			.or(() => this.parse_statement_return())
 			.or(() => this.parse_statement_break())
+			.or(() => this.parse_statement_directive())
+			.or(() => this.parse_statement_class_definition())
 			.or(() => this.parse_statement_assignment())
 			.or(() => this.parse_statement_function_definition())
 			.or(() => this.parse_expression_function_call())
@@ -363,6 +373,74 @@ class CoyoteParser extends Parser {
 				cOp(OPERATOR_DOT, ItemType.APP, "") ||
 				this.not_found()
 			)
+		}
+	// %name% or %(expr)% - dynamic var lookup by name. %name% is the "look
+	// up the value X points at" version: X's own value gets read once (the
+	// normal variable lookup), then read AGAIN using that as the var name -
+	// two lookups total, which is the whole "double deref" of it. %(expr)%
+	// is the same trick but with the target name coming from any expression
+	// instead of a bare variable, so foo/bar/whatever can be built on the fly
+	parse_expression_deref() {
+			this.log("parse_expression_deref")
+			const lookahead_parser = this.copy()
+			if (lookahead_parser.scan(OPERATOR_PERCENT).not_found()) {
+				return this.not_found()
+			}
+			lookahead_parser.scan(WHITESPACE)
+			let target
+			if (lookahead_parser.scan(OPERATOR_LPAREN).found()) {
+				target = lookahead_parser.parse_expression().or_else_throw(`Expected expression after '%('`)
+				lookahead_parser.scan(WHITESPACE)
+				lookahead_parser.scan(OPERATOR_RPAREN).or_else_throw(`Expected ')' to close '%(' deref`)
+				lookahead_parser.scan(WHITESPACE)
+				lookahead_parser.scan(OPERATOR_PERCENT).or_else_throw(`Expected closing '%' after '%(...)'`)
+			} else {
+				const varname = lookahead_parser.scan(VARIABLE)
+				if (varname.not_found()) {
+					return this.not_found()
+				}
+				target = { type: ItemType.VARIABLE, name: varname.get() }
+				lookahead_parser.scan(WHITESPACE)
+				lookahead_parser.scan(OPERATOR_PERCENT).or_else_throw(`Expected closing '%' after '%name'`)
+			}
+			this.sync_to(lookahead_parser)
+			return this.found({ type: ItemType.DEREF, target })
+		}
+	// new ClassName(args) - constructs an instance and runs __init if the
+	// class defines one. same param-list parsing as a function call/def
+	parse_expression_new() {
+			this.log("parse_expression_new")
+			const lookahead_parser = this.copy()
+			if (lookahead_parser.scan(KEYWORD_NEW).not_found()) {
+				return this.not_found()
+			}
+			lookahead_parser.scan(WHITESPACE)
+			const classname = lookahead_parser.scan(VARIABLE)
+			if (classname.not_found()) {
+				return this.not_found()
+			}
+			lookahead_parser.scan(WHITESPACE)
+			if (lookahead_parser.scan(OPERATOR_LPAREN).not_found()) {
+				return this.not_found()
+			}
+			const params = []
+			let expect_more_params = true
+			while (expect_more_params) {
+				lookahead_parser.scan(WHITESPACE)
+				const value = lookahead_parser.parse_expression()
+				if (value.not_found()) {
+					break
+				}
+				params.push(value.get())
+				lookahead_parser.scan(WHITESPACE)
+				expect_more_params = lookahead_parser.scan(OPERATOR_COMMA).found()
+			}
+			lookahead_parser.scan(WHITESPACE)
+			if (lookahead_parser.scan(OPERATOR_RPAREN).not_found()) {
+				return this.not_found()
+			}
+			this.sync_to(lookahead_parser)
+			return this.found({ type: ItemType.NEW_INSTANCE, classname: classname.get(), params })
 		}
 	parse_statement_method_call() {
 		this.log('parse_statement_method_call');
@@ -565,6 +643,77 @@ class CoyoteParser extends Parser {
 			name: funcname.get(),
 			params,
 			statements: statements.get(),
+		});
+	}
+	// #Name(args) - a top-of-script switch, same idea as AHK's #directives.
+	// picked up on the same pre-scan pass that finds functions/classes and
+	// applied before the script's real statements ever run
+	parse_statement_directive() {
+		this.log('parse_statement_directive');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(OPERATOR_HASH).not_found()) {
+			return this.not_found();
+		}
+		const dname = lookahead_parser.scan(VARIABLE);
+		if (dname.not_found()) {
+			return this.not_found();
+		}
+		if (lookahead_parser.scan(OPERATOR_LPAREN).not_found()) {
+			return this.not_found();
+		}
+		const params = [];
+		let expect_more_params = true;
+		while (expect_more_params) {
+			lookahead_parser.scan(WHITESPACE);
+			const value = lookahead_parser.parse_expression();
+			if (value.not_found()) {
+				break;
+			}
+			params.push(value.get());
+			lookahead_parser.scan(WHITESPACE);
+			expect_more_params = lookahead_parser.scan(OPERATOR_COMMA).found();
+		}
+		lookahead_parser.scan(WHITESPACE);
+		if (lookahead_parser.scan(OPERATOR_RPAREN).not_found()) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		return this.found({
+			type: ItemType.DIRECTIVE,
+			name: dname.get(),
+			params,
+		});
+	}
+	// class Name { __init(params) {...} func(args) {...} } - a class body is
+	// just a block of function definitions, so parse_block() already does
+	// all the real work here; this just sorts what it hands back by name
+	parse_statement_class_definition() {
+		this.log('parse_statement_class_definition');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_CLASS).not_found()) {
+			return this.not_found();
+		}
+		lookahead_parser.scan(WHITESPACE);
+		const classname = lookahead_parser.scan(VARIABLE);
+		if (classname.not_found()) {
+			return this.not_found();
+		}
+		lookahead_parser.scan(WHITESPACE);
+		const body = lookahead_parser.parse_block();
+		if (body.not_found()) {
+			return this.not_found();
+		}
+		const methods = {};
+		for (const stmt of body.get()) {
+			if (stmt.type === ItemType.FUNCTION_DEFINITION) {
+				methods[stmt.name.toLowerCase()] = stmt;
+			}
+		}
+		this.sync_to(lookahead_parser);
+		return this.found({
+			type: ItemType.CLASS_DEFINITION,
+			name: classname.get(),
+			methods,
 		});
 	}
 	parse_block() {
@@ -803,7 +952,7 @@ class CoyoteParser extends Parser {
 			});
 		}
 		//if (this.loopmode == true) {
-			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_variable())
+			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_deref()).or(() => this.parse_expression_new()).or(() => this.parse_expression_variable())
 		//} else {
 		//	console.log(this.loopmode)
 		//	return this.parse_expression_function_call().or(() => this.parse_expression_variable());
@@ -1355,6 +1504,8 @@ class ASTExecutor {
 		this.localfuncvars = {};
 		this.functions = parent ? parent.functions : {};
 		this.natives = parent ? parent.natives : {};
+		this.classes = parent ? parent.classes : {};
+		this.settings = parent ? parent.settings : { arrayStartIndex: 0, batchLines: null, batchOps: null };
 		this.debug = 11111111111110;
 		this.initialising = true;
 		this.methods = parent ? parent.methods : Object.getOwnPropertyNames(ASTExecutor.prototype)
@@ -1392,13 +1543,27 @@ class ASTExecutor {
 		// earlier assignments are visible further down (var := 123 \n print(var)),
 		// and capture print() output so it can be asserted on directly
 		const scope = this.spawn()
-		// same pre-scan run() does for a real script, so a function defined
-		// earlier in the snippet can be called later in the same snippet
+		// settings (things like #ArrayStartIndex) are shared-by-reference
+		// from spawn(), same as functions/classes - but unlike those, a
+		// directive is meant to be a per-script opt-in, so it gets its own
+		// copy here rather than leaking whatever one assertion sets into
+		// every assertion that runs after it
+		scope.settings = { ...this.settings }
+		// same pre-scan run() does for a real script, so a function or class
+		// defined earlier in the snippet can be used later in the same snippet
 		statements.forEach(statement => {
 			if (statement.type === 4) {
 				scope.functions[statement.name] = statement
 			}
+			if (statement.type === ItemType.CLASS_DEFINITION) {
+				scope.classes[statement.name.toLowerCase()] = statement
+			}
 		})
+		for (const statement of statements) {
+			if (statement.type === ItemType.DIRECTIVE) {
+				await scope.applyDirective(statement)
+			}
+		}
 		const printed = []
 		const realLog = console.log
 		console.log = (...args) => printed.push(args.join(' '))
@@ -1963,6 +2128,52 @@ class ASTExecutor {
 			{ code: 'Double(n) { return n * 2 }\nprint(Double(d := 7))\nprint(d)', expected: '14\n7' },
 			{ code: 'buf := "................"\nprint(SubStr(buf, 1, pos := 5))\nprint(pos)', expected: '.....\n5' },
 			{ code: 'arr := [1,2,3]\nIdent(n) { return n }\nprint(Ident(arr[0] := 99))\nprint(arr[0])', expected: '99\n99' }, // member-access targets inline too, not just plain vars
+
+			// dynamic variable dereference: %name% and %(expr)%
+			// %name% reads name's own value once (a normal var read), then reads
+			// AGAIN using that value as the variable to look up - two reads
+			// total, e.g. world/hello holding each other's name and swapping
+			{ code: 'world := "hello"\nhello := "world"\nprint(%world% %hello%)', expected: 'worldhello' }, // no space - bare-whitespace concat never inserts one (see the plain-variable version of this same check below)
+			{ code: 'a := "hello"\nb := "world"\nprint(a b)', expected: 'helloworld' }, // same no-space concat behavior with two plain variables, nothing deref-specific about it
+			{ code: 'x := "y"\ny := "z"\nz := "final"\nprint(%x%)', expected: 'z' },
+			{ code: 'a := "b"\nb := "the value"\nprint(%a%)', expected: 'the value' },
+			{ code: 'x := "doesNotExist"\nprint(%x%)', expected: '' }, // deref-ing to a name nothing declared is just an empty result, not an error
+			// %name% chains with indexing/member access same as a plain variable would
+			{ code: 'var := ["foo", "man", "chu"]\nname := "var"\nprint(%name%[1])', expected: 'man' },
+			{ code: 'name := "var"\nvar := ["foo","man","chu"]\nprint(Upper(%name%[0]))', expected: 'FOO' }, // and nests fine inside an ordinary function call
+			// %(expr)% - same trick, but the target name comes from any expression instead of only a bare variable
+			{ code: 'greeting := "hi"\nhi := "there"\nprint(%("g" . "r" . "eeting")%)', expected: 'hi' },
+			{ code: 'foo := "picked foo"\na1 := "f"\na2 := "oo"\nprint(%(a1 a2)%)', expected: 'picked foo' }, // the inside of %( )% is a real expression too, so bare-whitespace concat works there as well
+			{ code: 'letters := ["p","q","r"]\nkey := "letters"\nprint(%(key)%[2])', expected: 'r' }, // and %( )% chains with [index]/.member afterward too
+
+			// #ArrayStartIndex - default is 0 (matches every array-index assertion
+			// above, untouched), opting into 1 shifts every [N] read AND write
+			{ code: 'arr := [10,20,30]\nprint(arr[1])', expected: '20' }, // default, unchanged
+			{ code: '#ArrayStartIndex(1)\narr := [10,20,30]\nprint(arr[1])', expected: '10' },
+			{ code: '#ArrayStartIndex(1)\narr := [10,20,30]\nprint(arr[3])', expected: '30' },
+			{ code: '#ArrayStartIndex(1)\narr := [1,2,3]\narr[1] := 99\nprint(arr)', expected: '99,2,3' }, // the write side shifts too, not just reads
+			// %deref% + #ArrayStartIndex(1) together, same idea as the "very
+			// silly" expression-deref example - var4[3] now correctly lands on
+			// "bongo" (1st/2nd/3rd, not 0/1/2), so the built name comes out as
+			// "hey"+"bongo"+%hello%. %hello% itself still resolves to "hello"
+			// (hello's value is "world", and %world% is what would read back
+			// as "hello" - see the swap example above), so the variable this
+			// actually finds is "heybongohello", not "heybongoworld"
+			{ code: '#ArrayStartIndex(1)\nvar1 := "h"\nvar2 := "e"\nvar3 := "y"\nvar4 := ["bingo", "bango", "bongo"]\nworld := "hello"\nhello := "world"\nheybongohello := ["yes", "this", "works"]\nprint(%(var1 var2 var3 var4[3] %hello%)%[1])', expected: 'yes' }, // [1] under #ArrayStartIndex(1) is the 1st element
+			// #SetBatchLines / #SetBatchOps - parsed and stored, don't affect
+			// correctness of anything after them
+			{ code: '#SetBatchLines(5)\nprint(isNum(5))', expected: '1' },
+			{ code: '#SetBatchOps(3)\nprint(isNum(5))', expected: '1' },
+
+			// classes: class Name { __init(params) {...} method(args) {...} }
+			{ code: 'class Counter { __init(start) { count := start }\nadd(n) { count := count + n\nreturn count } }\nc := new Counter(10)\nprint(c.add(5))', expected: '15' },
+			{ code: 'class Counter { __init(start) { count := start }\nadd(n) { count := count + n\nreturn count } }\nc := new Counter(10)\nc.add(5)\nprint(c.add(5))', expected: '20' }, // instance state persists across separate method calls
+			{ code: 'class Greeter { __init(name) { myname := name }\ngreet() { return "Hello " . myname } }\ng := new Greeter("World")\nprint(g.greet())', expected: 'Hello World' },
+			{ code: 'class Thing { double(n) { return n * 2 } }\nt := new Thing()\nprint(t.double(21))', expected: '42' }, // __init is optional
+			{ code: 'class Box { __init(v) { val := v }\nget() { return val } }\nb1 := new Box(1)\nb2 := new Box(2)\nprint(b1.get())\nprint(b2.get())', expected: '1\n2' }, // separate instances don't share state
+			// Var.func(param).round() - a class method chained into a global
+			// built-in once its return value isn't a class instance anymore
+			{ code: 'class Calc { addFive(n) { return n + 5 } }\nc := new Calc()\nprint(c.addFive(10).round())', expected: '15' },
 		];
 		// Strict === can never match two separately-built arrays/objects even
 		// when their contents are identical, which is why every array- or
@@ -2116,12 +2327,13 @@ class ASTExecutor {
 		}
 		let node = box;
 		for (let i = 0; i < path.length - 1; i++) {
-			if (node[path[i]] === null || typeof node[path[i]] !== 'object') {
-				node[path[i]] = {};
+			const k = this.arrKey(node, path[i]);
+			if (node[k] === null || typeof node[k] !== 'object') {
+				node[k] = {};
 			}
-			node = node[path[i]];
+			node = node[k];
 		}
-		node[path[path.length - 1]] = value;
+		node[this.arrKey(node, path[path.length - 1])] = value;
 		return found.store(box);
 	}
 	// members show up as a bare name off x.foo or an array of exprs off
@@ -2134,6 +2346,15 @@ class ASTExecutor {
 			return member.flat(Infinity).map(m => String(m).replace(/^"|"$/g, ''));
 		}
 		return [String(member).replace(/^"|"$/g, '')];
+	}
+	// a plain-numeric path segment into an array gets shifted by whatever
+	// #ArrayStartIndex was set to (default 0, so this is a no-op unless a
+	// script opts into 1-based indexing) - objects/string keys are untouched
+	arrKey(node, key) {
+		if (Array.isArray(node) && /^-?\d+$/.test(key)) {
+			return String(Number(key) - this.settings.arrayStartIndex);
+		}
+		return key;
 	}
 	// walks x["a"]["b"] back down to the root var plus one flat path, so a
 	// nested assignment knows which box to open and which key to drop it in
@@ -2152,7 +2373,7 @@ class ASTExecutor {
 			if (node === null || typeof node !== 'object') {
 				return "";
 			}
-			node = node[key];
+			node = node[this.arrKey(node, key)];
 		}
 		return node === undefined ? "" : node;
 	}
@@ -2281,6 +2502,23 @@ class ASTExecutor {
             this.print(ast);
         }
     }
+	// #Name(args) directives, applied on the pre-scan pass before run() gets
+	// to any of its own A_ vars or the script's real statements. deliberately
+	// a plain if-chain rather than a lookup table - meant to be easy to bolt
+	// one more "expected behavior" switch onto later without restructuring
+	async applyDirective(statement) {
+		const key = String(statement.name).toLowerCase();
+		const values = await this.execute_ast(statement.params);
+		if (key === "arraystartindex") {
+			// #ArrayStartIndex(0) is the default (matches every existing
+			// script/assertion) - #ArrayStartIndex(1) shifts [N] to 1-based
+			this.settings.arrayStartIndex = this.numeric(values[0]) || 0;
+		} else if (key === "setbatchlines") {
+			this.settings.batchLines = this.numeric(values[0]) || null;
+		} else if (key === "setbatchops") {
+			this.settings.batchOps = this.numeric(values[0]) || null;
+		}
+	}
 	async run(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		this.print("running...");
@@ -2289,12 +2527,24 @@ class ASTExecutor {
 		// Store function definitions
 
 		// Iterate over the AST statements
+
 		ast.statements.forEach(statement => {
 			if (statement.type === 4) {
 				// Found a function definition, store it by its name
 				this.functions[statement.name] = statement;
 			}
+			if (statement.type === ItemType.CLASS_DEFINITION) {
+				this.classes[statement.name.toLowerCase()] = statement;
+			}
 		});
+
+		// directives get applied on the same pre-scan pass, before any of
+		// the A_ vars below or the script's own statements ever run
+		for (const statement of ast.statements) {
+			if (statement.type === ItemType.DIRECTIVE) {
+				await this.applyDirective(statement);
+			}
+		}
 
 		// Log the collected function definitions
 		console.log("Functions found:", this.functions);
@@ -2482,6 +2732,39 @@ class ASTExecutor {
 	}	
 	async function_definition(ast) { // 4
 	}
+	// both already did their real work on the pre-scan pass in run()/
+	// assert_code() - same as function_definition just above
+	async directive(ast) { // 38
+	}
+	async class_definition(ast) { // 39
+	}
+	async new_instance(ast) { // 40
+		const classDef = this.classes[String(ast.classname).toLowerCase()];
+		if (!classDef) {
+			throw new Error(`INTERNAL_new: no class named ${ast.classname}`);
+		}
+		let params = await this.execute_ast(ast.params);
+		// an instance is just its own persistent scope (so fields set in one
+		// method are still there for the next) plus a tag saying which class
+		// it belongs to, so method_call() knows where to look up methods
+		const instance = this.spawn();
+		const init = classDef.methods["__init"];
+		if (init) {
+			if (init.params) {
+				for (const [index, param] of init.params.entries()) {
+					let paramValue = params[index];
+					if (paramValue === undefined && param.default_value !== null) {
+						paramValue = await instance.execute_ast(param.default_value);
+					}
+					instance.set(param.name, paramValue);
+				}
+			}
+			await instance.execute_ast(init.statements);
+			instance.returning = false;
+			instance.returned = undefined;
+		}
+		return { __class__: classDef.name, __instance__: instance };
+	}
 	async loop(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let countResult = await this.execute_ast(ast.count);
@@ -2528,9 +2811,23 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		return await this.get(ast.name)
 	}
+	async deref(ast) { // 37
+		// target's own value has already been read once by execute_ast below
+		// (a plain variable read if it's %name%, whatever the expression
+		// works out to if it's %(expr)%) - this.get() on top of that is the
+		// second lookup, using that value as the name to go find
+		let name = await this.execute_ast(ast.target)
+		return await this.get(String(name))
+	}
 	async literal(ast) { // 25
 		//this.print(`${this.getFunctionName()}`);
 		return String(ast.value).replace(/^"|"$/g, '');
+	}
+	// a value that's already been resolved, wrapped back up as a tiny AST
+	// node so it can be dropped into a params array without re-executing
+	// whatever produced it a second time (method_call uses this)
+	async value(ast) { // 36
+		return ast.value;
 	}
 	async assignment(ast) {
 		const leftType = await this.detype(ast.left.type); // Store the result of detype
@@ -2587,7 +2884,42 @@ class ASTExecutor {
 		return this.step(await this.execute_ast(ast.value), member);
 	}
 	async method_call(ast) {
-		return this.execute_ast({type: 6, name: (await this.execute_ast(ast.func.member)), params: [ast.func.value, ...ast.params]})
+		// evaluated exactly once, whatever it is - re-evaluating ast.func.value
+		// a second time down in the fallback branch would double any side
+		// effects it has (e.g. if it's itself a function call)
+		const target = await this.execute_ast(ast.func.value);
+		const methodName = await this.execute_ast(ast.func.member);
+		if (target && typeof target === 'object' && target.__instance__) {
+			const classDef = this.classes[String(target.__class__).toLowerCase()];
+			const method = classDef && classDef.methods[String(methodName).toLowerCase()];
+			if (method) {
+				// runs on the instance's own persistent scope, same as
+				// __init did, so fields set by one method call are still
+				// there the next time any method on this instance runs
+				const instance = target.__instance__;
+				let params = await this.execute_ast(ast.params);
+				if (method.params) {
+					for (const [index, param] of method.params.entries()) {
+						let paramValue = params[index];
+						if (paramValue === undefined && param.default_value !== null) {
+							paramValue = await instance.execute_ast(param.default_value);
+						}
+						instance.set(param.name, paramValue);
+					}
+				}
+				const body = await instance.execute_ast(method.statements);
+				const retval = instance.returning ? this.Core(instance.returned) : this.Core(this.removeUndefined(body)[0]);
+				instance.returning = false;
+				instance.returned = undefined;
+				return retval;
+			}
+			// not one of the class's own methods - falls through to the
+			// normal "global function, object as the first arg" behavior
+			// below, same as any other value (this is what lets something
+			// like Var.func(x).round() reach the built-in Round() for
+			// .round() once func()'s own return value isn't a class instance)
+		}
+		return this.execute_ast({ type: 6, name: methodName, params: [{ type: ItemType.VALUE, value: target }, ...ast.params] })
 	}
 	async concat(ast) { // 16
 		//this.print(`${this.getFunctionName()}`);
