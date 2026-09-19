@@ -1317,6 +1317,28 @@ function convert_statement(s) {
 	if (s.type === ItemType.FUNCTION_CALL) {
 		return convert_expression(s);
 	}
+	if (s.type === ItemType.CLASS_DEFINITION) {
+		return {
+			name: chalk.cyan(ItemType[s.type]),
+			children: [{
+				name: chalk.gray('name') + ' ' + s.name
+			}, {
+				name: chalk.gray('methods'),
+				children: Object.values(s.methods).map(m => convert_statement(m)),
+			}]
+		};
+	}
+	if (s.type === ItemType.DIRECTIVE) {
+		return {
+			name: chalk.cyan(ItemType[s.type]),
+			children: [{
+				name: chalk.gray('name') + ' ' + s.name
+			}, {
+				name: chalk.gray('params'),
+				children: s.params.map(p => convert_expression(p)),
+			}]
+		};
+	}
 	return {
 		name: chalk.red(`Unknown statement (${ItemType[s.type]})`)
 	};
@@ -1408,6 +1430,26 @@ function convert_expression(e) {
 				name: chalk.gray('params'),
 				children: e.params.map(convert_expression)
 			}, ],
+		};
+	}
+	if (e.type === ItemType.DEREF) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [{
+				name: chalk.gray('target'),
+				children: [convert_expression(e.target)],
+			}],
+		};
+	}
+	if (e.type === ItemType.NEW_INSTANCE) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [{
+				name: chalk.gray('classname') + ' ' + e.classname
+			}, {
+				name: chalk.gray('params'),
+				children: e.params.map(convert_expression),
+			}, ]
 		};
 	}
 	//console.log(e)
@@ -1547,8 +1589,12 @@ class ASTExecutor {
 		// from spawn(), same as functions/classes - but unlike those, a
 		// directive is meant to be a per-script opt-in, so it gets its own
 		// copy here rather than leaking whatever one assertion sets into
-		// every assertion that runs after it
-		scope.settings = { ...this.settings }
+		// every assertion that runs after it. __defaultSettings (frozen
+		// once, synchronously, before any of this could interleave with a
+		// real script's own run()) is used when present so a directive in
+		// an EARLIER assertion can't corrupt a LATER one either, even
+		// though this whole self-test runs unawaited from the constructor
+		scope.settings = { ...(this.__defaultSettings || this.settings) }
 		// same pre-scan run() does for a real script, so a function or class
 		// defined earlier in the snippet can be used later in the same snippet
 		statements.forEach(statement => {
@@ -1576,6 +1622,15 @@ class ASTExecutor {
 		return printed.length ? printed.join('\n') : result[result.length - 1]
 	}
 	async verifyInternalFunctions() {
+		// snapshotted synchronously, before this function - or run(), which
+		// the CLI calls right after construction - ever yields to the event
+		// loop. the asserts below fire off unawaited from the constructor,
+		// so without freezing a copy here, a real script's own #directive
+		// (via run(), interleaving on the same shared settings object)
+		// could reach back and corrupt whichever assert hasn't run yet -
+		// same class of race A_pi had before it got moved into the
+		// constructor ahead of these
+		this.__defaultSettings = { ...this.settings };
 		//UNIT TESTS
 		const assertions = [
 			{ code: 'pcChange(100, 150)', expected: 50 },
