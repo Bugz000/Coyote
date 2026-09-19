@@ -14,3 +14,18 @@ Loop (250) {
         Print(Join(Slice(buf, (A_index-1) * 48, A_index * 48), ""))
     A := A + 0.08, B := B + 0.12
 }
+
+
+print(func("func test!"))
+c := new Calc()
+print("class test:" c.addFive(10).round())   ; 15
+
+
+
+func(param) { 
+	return param
+}
+
+class Calc {
+	addFive(n) { return n + 5 }
+}
