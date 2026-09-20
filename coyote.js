@@ -79,7 +79,7 @@ const LITERAL_NUMBER = new RegexToken(/-?(0[xX][0-9a-fA-F]+(_[0-9a-fA-F]+)*|0[bB
 const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i, 'Boolean literal, `true` or `false` (case-insensitive)');
 const LITERAL_NULL = new RegexToken(/(null|nil|undefined)\b/i, 'Empty literal, `null`, or `nil` / `undefined` for no value (case-insensitive)');
 const LITERAL_NAN = new RegexToken(/(nan|infinity)\b/i, 'Special number literal, `NaN` or `Infinity` (case-insensitive)');
-const LITERAL_STRING = new RegexToken(/"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'/, 'Double or single quoted string literal, `\\` starts an escape');
+const LITERAL_STRING = new RegexToken(/"(?:[^"\\`]|[\\`][\s\S])*"|'(?:[^'\\`]|[\\`][\s\S])*'/, 'Double or single quoted string literal, `\\` or a backtick starts an escape');
 const LITERAL_HEREDOC = new RegexToken(/<<([A-Za-z_][A-Za-z0-9_]*)[ \t]*\r?\n(?:[\s\S]*?\r?\n)?[ \t]*\1(?![A-Za-z0-9_])/, 'Heredoc, `<<END` up to a line that starts with END, kept exactly as written');
 const ESCAPE = new RegexToken(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[\s\S])/, 'Backslash escape inside a string, `\\n`, `\\t`, `\\"`, `\\\\`, `\\u{1F600}`');
 const OPERATOR_BACKTICK = new StringToken('`', 'Begins and ends a template string, `${expr}` inside it gets worked out');
@@ -1292,7 +1292,7 @@ class CoyoteParser extends Parser {
 	}
 }
 const ESCAPES = { n: '\n', t: '\t', r: '\r', '0': '\0', '"': '"', "'": "'", '\\': '\\', '`': '`', '$': '$' };
-// one escape, \n \u{41} etc. anything unknown stays as written so \d still reaches a regex
+// one escape, \n or `n, \u{41} etc. anything unknown stays as written so \d still reaches a regex
 function unescape_seq(seq) {
 	if (seq[1] === 'u' && seq.length > 2) {
 		const code = parseInt(seq.slice(2).replace(/[{}]/g, ''), 16);
@@ -1301,7 +1301,7 @@ function unescape_seq(seq) {
 	return seq[1] in ESCAPES ? ESCAPES[seq[1]] : seq;
 }
 function unescape_string(text) {
-	return text.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[\s\S])/g, unescape_seq);
+	return text.replace(/[\\`](u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[\s\S])/g, unescape_seq);
 }
 // a quoted literal as the parser kept it, minus the quotes and with the escapes worked out
 function unquote(text) {
@@ -2998,6 +2998,36 @@ class ASTExecutor {
 			{ code: 'Occur("a\nb\nc", "\\n")', expected: 2 },
 			{ code: 'x := "a,b\\nc,d"\nprint(Count(StrSplit(x, "\\n")))', expected: '2' },
 			
+			// the backtick escapes the same way as the backslash
+			{ code: '"a`nb"', expected: 'a\nb' },
+			{ code: '"a`tb"', expected: 'a\tb' },
+			{ code: '"a`rb"', expected: 'a\rb' },
+			{ code: '"`0"', expected: '\0' },
+			{ code: '"say `"hi`""', expected: 'say "hi"' },
+			{ code: '"`""', expected: '"' },
+			{ code: '"`\'"', expected: "'" },
+			{ code: '"a``b"', expected: 'a`b' }, // two backticks give one
+			{ code: '"a`\\b"', expected: 'a\\b' },
+			{ code: '"`$"', expected: '$' },
+			{ code: '"`u{41}`u0042"', expected: 'AB' },
+			{ code: '"a`xb"', expected: 'a`xb' }, // an unknown one stays as written
+			{ code: '"(`hi`)"', expected: '(`hi`)' }, // so most backticks in js source survive
+			{ code: '"a`nb\\nc"', expected: 'a\nb\nc' }, // both kinds in one string
+			{ code: '"\\`n"', expected: '`n' }, // an escaped backtick is just a backtick
+			{ code: '"``n"', expected: '`n' },
+			{ code: "'a`nb'", expected: 'a\nb' },
+			{ code: "'it`'s'", expected: "it's" },
+			{ code: 'x := "a`nb"\nprint(x)', expected: 'a\nb' },
+			{ code: 'x := "``n"\nprint(x)', expected: '`n' }, // print no longer escapes a second time
+			{ code: 'x := <<END\na`nb\nEND\nprint(x)', expected: 'a`nb' }, // and a heredoc stays as written
+			{ code: 'x := "a`nb"\nprint(x === "a\\nb")', expected: 'true' },
+			{ code: 'StrLen("a`nb")', expected: 3 },
+			{ code: 'Occur("a`nb`nc", "`n")', expected: 2 },
+			{ code: 'x := "a,b`nc,d"\nprint(Count(StrSplit(x, "`n")))', expected: '2' },
+			{ code: 'x := "a`tb"\nprint(Asc(Substr(x, 1, 1)))', expected: '9' },
+			{ code: 'o := {"k`ney": 5}\nprint(o["k\\ney"])', expected: '5' },
+			{ code: "x := \"a\" . \"`n\" . 'b'\nprint(x)", expected: 'a\nb' },
+			
 			// quotes inside strings, and single-quoted strings
 			{ code: "'say \"hi\"'", expected: 'say "hi"' },
 			{ code: '"it\'s"', expected: "it's" },
@@ -3171,6 +3201,7 @@ class ASTExecutor {
 			{ code: 'x := {"a": null}', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OBJECT\n      └─"a"\n        └─null\n' },
 			{ code: "x := 'a'", expected: "└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─'a'\n" }, // strings and templates in the tree
 			{ code: 'x := "a\\nb"', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─"a\\nb"\n' }, // the escape is worked out when it runs, so the tree shows it as written
+			{ code: 'x := "a`nb"', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─"a`nb"\n' },
 			{ code: 'x := `a`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      └─"a"\n' },
 			{ code: 'x := ``', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n' },
 			{ code: 'x := `hi ${name}!`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      ├─"hi "\n      ├─VAR name\n      └─"!"\n' },
@@ -3185,6 +3216,8 @@ class ASTExecutor {
 			{ code: 'x := "abc', expected: 'Unterminated string' },
 			{ code: "x := 'abc", expected: 'Unterminated string' },
 			{ code: 'x := "abc\\"', expected: 'Unterminated string' }, // the last quote is escaped
+			{ code: 'x := "abc`"', expected: 'Unterminated string' }, // and so is this one
+			{ code: "x := 'abc`'", expected: 'Unterminated string' },
 			{ code: 'x := "abc\ndef', expected: 'Unterminated string' },
 			{ code: 'x := `abc', expected: 'Unterminated template string' },
 			{ code: 'x := `abc\\`', expected: 'Unterminated template string' },
@@ -4965,11 +4998,7 @@ async run(ast) {
 		if (out === null || out === undefined) {
 			out = "";
 		}
-		if (typeof out === 'string') {
-			console.log(out.replace(/`n/g, '\n'));
-		} else {
-			console.log(out);
-		}
+		console.log(out);
 	}
 	async INTERNAL_Cell(ast) {
 		//this.print(`${this.getFunctionName()}`);
