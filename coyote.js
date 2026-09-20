@@ -75,8 +75,10 @@ const OPERATOR_COMMA = new StringToken(',', 'Separates function arguments or lis
 const OPERATOR_COLON = new StringToken(':', 'Separates a key from its value in an object literal');
 const OPERATOR_DOT = new StringToken('.', 'Member access (`x.foo`), also doubled as `..` for string append');
 const OPERATOR_PERCENT = new StringToken('%', 'Dynamic variable dereference - %name% or %(expr)%');
-const LITERAL_NUMBER = new RegexToken(/-?[0-9]+(\.[0-9]+)?/, 'Numeric literal, e.g. `42` or `3.14`');
+const LITERAL_NUMBER = new RegexToken(/-?(0[xX][0-9a-fA-F]+(_[0-9a-fA-F]+)*|0[bB][01]+(_[01]+)*|([0-9]+(_[0-9]+)*(\.[0-9]+(_[0-9]+)*)?|\.[0-9]+(_[0-9]+)*)([eE][+-]?[0-9]+)?)/, 'Numeric literal, e.g. `42`, `3.14`, `.5`, `1e6`, `1_000`, `0xFF` or `0b1010`');
 const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i, 'Boolean literal, `true` or `false` (case-insensitive)');
+const LITERAL_NULL = new RegexToken(/(null|nil|undefined)\b/i, 'Empty literal, `null`, or `nil` / `undefined` for no value (case-insensitive)');
+const LITERAL_NAN = new RegexToken(/(nan|infinity)\b/i, 'Special number literal, `NaN` or `Infinity` (case-insensitive)');
 const LITERAL_STRING = new RegexToken(/"[^"]*"/, 'Double-quoted string literal');
 const KEYWORD_IF = new RegexToken(/if\b/i, 'Begins a conditional statement');
 const KEYWORD_ELSE = new RegexToken(/else\b/i, 'Begins the alternate branch of a conditional statement');
@@ -985,16 +987,32 @@ class CoyoteParser extends Parser {
 		}
 		const number = this.scan(LITERAL_NUMBER);
 		if (number.found()) {
+			// underscores are only for reading, the sign is peeled off first so hex and binary keep working
+			const text = number.get().replace(/_/g, '');
 			return this.found({
 				type: ItemType.LITERAL,
-				value: +number.get(),
+				value: text[0] === '-' ? -text.slice(1) : +text,
 			});
 		}
 		const boolean = this.scan(LITERAL_BOOLEAN);
 		if (boolean.found()) {
 			return this.found({
 				type: ItemType.LITERAL,
-				value: boolean.get() === 'true',
+				value: boolean.get().toLowerCase() === 'true',
+			});
+		}
+		const nothing = this.scan(LITERAL_NULL);
+		if (nothing.found()) {
+			return this.found({
+				type: ItemType.LITERAL,
+				value: nothing.get().toLowerCase() === 'null' ? null : undefined,
+			});
+		}
+		const special = this.scan(LITERAL_NAN);
+		if (special.found()) {
+			return this.found({
+				type: ItemType.LITERAL,
+				value: special.get().toLowerCase() === 'nan' ? NaN : Infinity,
 			});
 		}
 		const string = this.scan(LITERAL_STRING);
@@ -1921,15 +1939,15 @@ class ASTExecutor {
 			{ code: 'StrMid("abcde")', expected: 3 },
 			{ code: 'Occur("aaaa", "a")', expected: 4 },
 			{ code: 'Occur("Hello", "L")', expected: 2 },
-			{ code: 'Occur("Hello", "L", 2)', expected: 2 }, // case arg arrives as a string, so it's ignored
+			{ code: 'Occur("Hello", "L", 2)', expected: 0 }, // 2 is case-sensitive, and there is no capital L
 			{ code: 'Occur("abcabcabc", "abc")', expected: 3 },
 			{ code: 'Occur("no match", "zzz")', expected: 0 },
 			{ code: 'LastOcc("abcabc", "a")', expected: 4 },
-			{ code: 'LastOcc("Hello", "L", 2)', expected: 4 }, // same as Occur
+			{ code: 'LastOcc("Hello", "L", 2)', expected: 0 }, // same as Occur
 			{ code: 'LastOcc("no match", "zzz")', expected: 0 },
 			{ code: 'Pcof(25, 200)', expected: 12.5 },
 			{ code: 'Pcof(0, 100)', expected: 0 },
-			{ code: 'Pcof(50, 0)', expected: Infinity }, // whole arrives as a string, so the 0 guard never fires
+			{ code: 'Pcof(50, 0)', expected: "Error: Division by zero" }, // whole is a real 0, so the guard fires
 			{ code: 'Pct(200, 25)', expected: 50 },
 			{ code: 'Pct(50, 0)', expected: 0 },
 			{ code: 'Pct(0, 50)', expected: 0 },
@@ -1954,7 +1972,7 @@ class ASTExecutor {
 			{ code: 'FromBin("11111111")', expected: 255 },
 			{ code: 'ToString(0)', expected: "0" },
 			{ code: 'ToString(3.5)', expected: "3.5" },
-			{ code: 'ToString([1,2,3])', expected: "[\"1\",\"2\",\"3\"]" },
+			{ code: 'ToString([1,2,3])', expected: "[1,2,3]" },
 			{ code: 'ToString({"a":"1"})', expected: "{\"a\":\"1\"}" },
 			{ code: 'ToNum("")', expected: 0 },
 			{ code: 'ToNum("3.14")', expected: 3.14 },
@@ -1977,7 +1995,7 @@ class ASTExecutor {
 			{ code: 'Reverse("a")', expected: "a" },
 			{ code: 'Reverse("racecar")', expected: "racecar" },
 			{ code: 'Reverse("hello")', expected: "olleh" },
-			{ code: 'Reverse([1,2,3])', expected: ["3", "2", "1"] },
+			{ code: 'Reverse([1,2,3])', expected: [3, 2, 1] },
 			{ code: 'Reverse([])', expected: [] },
 			{ code: 'Contains("", "")', expected: 1 },
 			{ code: 'Contains("abc", "")', expected: 1 },
@@ -2007,7 +2025,7 @@ class ASTExecutor {
 			{ code: 'Avg([1])', expected: 1 },
 			{ code: 'Avg([1,2,3,4])', expected: 2.5 },
 			{ code: 'Avg([0,0,0])', expected: 0 },
-			{ code: 'Json([1,2,3])', expected: "[\"1\",\"2\",\"3\"]" },
+			{ code: 'Json([1,2,3])', expected: "[1,2,3]" },
 			{ code: 'Json({"a":"1","b":"2"})', expected: "{\"a\":\"1\",\"b\":\"2\"}" },
 			{ code: 'Json("plain")', expected: "\"plain\"" },
 			{ code: 'Parse("[1,2,3]")', expected: [1, 2, 3] },
@@ -2016,13 +2034,13 @@ class ASTExecutor {
 			{ code: 'Range(3)', expected: [0, 1, 2, 3] },
 			{ code: 'Range(2, 5)', expected: [2, 3, 4, 5] },
 			{ code: 'Range(5, 2)', expected: [] },
-			{ code: 'Slice([1,2,3,4,5], 1, 3)', expected: ["2", "3"] },
-			{ code: 'Slice([1,2,3,4,5], 2)', expected: ["3", "4", "5"] },
+			{ code: 'Slice([1,2,3,4,5], 1, 3)', expected: [2, 3] },
+			{ code: 'Slice([1,2,3,4,5], 2)', expected: [3, 4, 5] },
 			{ code: 'Slice("Hello", 1, 3)', expected: "el" },
 			{ code: 'Join([1,2,3], "-")', expected: "1-2-3" },
 			{ code: 'Join(["a","b","c"], "")', expected: "abc" },
-			{ code: 'Flatten([1,[2,3],[4,[5]]])', expected: ["1", "2", "3", "4", ["5"]] },
-			{ code: 'Push([1,2], 3)', expected: ["1", "2", "3"] },
+			{ code: 'Flatten([1,[2,3],[4,[5]]])', expected: [1, 2, 3, 4, [5]] },
+			{ code: 'Push([1,2], 3)', expected: [1, 2, 3] },
 			{ code: 'Push("ab", "c")', expected: "abc" },
 			{ code: 'Count([1,2,3])', expected: 3 },
 			{ code: 'Count("hello")', expected: 5 },
@@ -2033,10 +2051,10 @@ class ASTExecutor {
 			{ code: 'Keys({"a":"1","b":"2"})', expected: ["a", "b"] },
 			{ code: 'Values({"a":"1","b":"2"})', expected: ["1", "2"] },
 			{ code: 'Keys([1,2,3])', expected: ["0", "1", "2"] },
-			{ code: 'Sort([3,1,2])', expected: ["1", "2", "3"] },
-			{ code: 'Sort([3,1,2], "D")', expected: ["3", "2", "1"] },
+			{ code: 'Sort([3,1,2])', expected: [1, 2, 3] },
+			{ code: 'Sort([3,1,2], "D")', expected: [3, 2, 1] },
 			{ code: 'Sort(["banana","apple","cherry"])', expected: ["apple", "banana", "cherry"] },
-			{ code: 'Unique([1,1,2,2,3])', expected: ["1", "2", "3"] },
+			{ code: 'Unique([1,1,2,2,3])', expected: [1, 2, 3] },
 			{ code: 'Unique(["a","a","b"])', expected: ["a", "b"] },
 			{ code: 'Repl("Hello", "l", "L")', expected: "HeLlo" },
 			{ code: 'Repl("aaa", "a", "b")', expected: "baa" },
@@ -2335,7 +2353,7 @@ class ASTExecutor {
 			{ code: 'r := true !== false\nprint(r)', expected: 'true' },
 			{ code: 'r := "" === ""\nprint(r)', expected: 'true' },
 			{ code: 'x := 1\nprint(x === 1)\nprint(x == 1)\nprint(x = 1)\nprint(x === 2)', expected: 'true\ntrue\ntrue\nfalse' }, // variables holding a number
-			{ code: 'x := 1\nprint(x === "1")\nprint(x === "1.0")\nprint(x === 1.0)', expected: 'true\nfalse\ntrue' }, // a variable can't say whether it was quoted, so it lines up with a string as text or a number as a number
+			{ code: 'x := 1\nprint(x === "1")\nprint(x === "1.0")\nprint(x === 1.0)', expected: 'false\nfalse\ntrue' }, // a variable keeps the type it was given, so a number is never a string
 			{ code: 'y := 1 + 1\nprint(y === 2)\nprint(y !== 2)', expected: 'true\nfalse' }, // a computed number
 			{ code: 's := "abc"\nprint(s === "abc")\nprint(s === "ABC")\nprint(s == "ABC")\nprint(s = "ABC")\nprint(s != "ABC")', expected: 'true\nfalse\nfalse\ntrue\nfalse' }, // a variable holding a string
 			{ code: 'if ("1" === 1) { print("y") } else { print("n") }\nif ("1" == 1) { print("y") } else { print("n") }', expected: 'n\ny' }, // in an if condition
@@ -2394,7 +2412,7 @@ class ASTExecutor {
 			{ code: 'Round(Sqrt(50))', expected: 7 },
 			{ code: 'Abs(Invert(5))', expected: 5 },
 			{ code: 'Reverse(Upper("abc"))', expected: 'CBA' },
-			{ code: 'Sort(Unique([3,1,2,1,3]))', expected: ["1", "2", "3"] },
+			{ code: 'Sort(Unique([3,1,2,1,3]))', expected: [1, 2, 3] },
 			{ code: 'nums := [5,3,8,1,9]\nprint(Max(nums) - Min(nums))', expected: '8' },
 
 			// values with no fixed expected result
@@ -2403,7 +2421,7 @@ class ASTExecutor {
 			{ code: 'Date(0)', expected: '1970-01-01T00:00:00.000Z' },
 			{ code: 'Env("DEFINITELY_NOT_A_REAL_ENV_VAR_XYZ123")', expected: '' },
 			{ code: 'Sleep(0)', expected: true },
-			{ code: 'Purge([1, "", 2, 0, 3])', expected: ["1", "2", "0", "3"] }, // only the empty string gets dropped
+			{ code: 'Purge([1, "", 2, 0, 3])', expected: [1, 2, 0, 3] }, // only the empty string gets dropped
 			{ code: 'Purge({"a": "", "b": "1"})', expected: { b: '1' } },
 
 			// comma-separated statements on one line: var := 5, var2 := 10, var3 := 30
@@ -2443,9 +2461,9 @@ class ASTExecutor {
 			{ code: 'arr := [1,2,3]\nprint(Shift(arr))', expected: '1' },
 			{ code: 'arr := [1,2,3]\nShift(arr)\nprint(arr)', expected: '2,3' },
 			{ code: 'arr := [1,2,3]\nprint(Unshift(arr, 0))', expected: '0,1,2,3' }, // Unshift returns the (mutated) array, same shape as Push
-			{ code: 'Concat([1,2],[3,4])', expected: ["1", "2", "3", "4"] },
-			{ code: 'First([1,2,3])', expected: '1' },
-			{ code: 'Last([1,2,3])', expected: '3' },
+			{ code: 'Concat([1,2],[3,4])', expected: [1, 2, 3, 4] },
+			{ code: 'First([1,2,3])', expected: 1 },
+			{ code: 'Last([1,2,3])', expected: 3 },
 			// random, so check the contents, not the order
 			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Count(a))', expected: '5' },
 			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Sum(a))', expected: '15' },
@@ -2746,6 +2764,8 @@ class ASTExecutor {
 	}
 	Core(value) {
 		if (Array.isArray(value)) return value.length === 1 ? this.Core(value[0]) : value.map(v => this.Core(v));
+		// numbers, booleans, null and objects already know what they are
+		if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'object') return value;
 		if (typeof value === 'string' && !isNaN(value)) return Number(value);
 
 		const varrr = this.digest(value);
@@ -2777,6 +2797,29 @@ class ASTExecutor {
 			return value;
 		}
 		return this.Core(value);
+	}
+	// false, null, undefined, NaN, "" and anything that reads as 0 ("0", "0.0") are false, the rest is true
+	// that includes "false", [] and {}, use IsEmpty() for those
+	truth(value) {
+		if (value === null || value === undefined) {
+			return false;
+		}
+		if (typeof value === 'object') {
+			return true;
+		}
+		const n = this.numeric(value);
+		if (n !== null) {
+			return n !== 0 && !Number.isNaN(n);
+		}
+		return Boolean(value);
+	}
+	// null and undefined have no text
+	text(value) {
+		return value === null || value === undefined ? "" : String(value);
+	}
+	// null, undefined, or a plain variable that was never set
+	unset(node, value) {
+		return value === null || value === undefined || (node && node.type === ItemType.VARIABLE && !this.getvar(node.name));
 	}
 	digest(data) {
 		if (data === null || data === undefined) {
@@ -3886,7 +3929,7 @@ async run(ast) {
 	async IF(ast) { // 1
 		//this.print(`${this.getFunctionName()}`);
 		const conditionResult = await this.execute_ast(ast.condition);
-		if (conditionResult) {
+		if (this.truth(conditionResult)) {
 			return await this.execute_ast(ast.if_true);
 		} else {
 			return await this.execute_ast(ast.if_false);
@@ -3898,17 +3941,19 @@ async run(ast) {
 	}
 	async TERNARY(ast) { // 7
 		//this.print(`${this.getFunctionName()}`);
-		return (await this.execute_ast(ast.condition)) 
+		return this.truth(await this.execute_ast(ast.condition))
 			? await this.execute_ast(ast.if_true) 
 			: await this.execute_ast(ast.if_false);
 	}
 	async OR(ast) { // 8
 		//this.print(`${this.getFunctionName()}`);
-		return (await this.execute_ast(ast.left)) || (await this.execute_ast(ast.right));
+		const left = await this.execute_ast(ast.left);
+		return this.truth(left) ? left : await this.execute_ast(ast.right);
 	}
 	async AND(ast) { // 9
 		//this.print(`${this.getFunctionName()}`);
-		return (await this.execute_ast(ast.left)) && (await this.execute_ast(ast.right));
+		const left = await this.execute_ast(ast.left);
+		return this.truth(left) ? await this.execute_ast(ast.right) : left;
 	}
 	async EQUALS(ast) { // 10
 		//this.print(`${this.getFunctionName()}`);
@@ -3920,31 +3965,29 @@ async run(ast) {
 	}
 	async NOT(ast) { // 42
 		// same truthiness as if, so !x is always the opposite of if (x)
-		return !(await this.execute_ast(ast.expression));
+		return !this.truth(await this.execute_ast(ast.expression));
 	}
-	// = ignores case, == doesn't, === won't turn "1" into 1. variables don't remember if they were quoted,
-	// so a numeric string in one matches either kind
-	strictkind(node, value) {
-		if (node.type === ItemType.LITERAL) {
-			return typeof node.value === 'string' ? 'string' : typeof node.value;
-		}
-		if (typeof value === 'string') {
-			return this.numeric(value) === null ? 'string' : 'unknown';
-		}
-		return typeof value;
+	// = ignores case, == doesn't, === compares kind and value with no coercing ("1" !== 1, null !== undefined, NaN !== NaN)
+	// loose: numbers and numeric strings compare as numbers, null and undefined only match each other and "",
+	// a boolean is 1/0 next to a number and true/false next to text, arrays and objects only match themselves
+	strictkind(value) {
+		return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
 	}
 	async equality(ast) {
-		const l = await this.execute_ast(ast.left);
-		const r = await this.execute_ast(ast.right);
+		let l = await this.execute_ast(ast.left);
+		let r = await this.execute_ast(ast.right);
 		if (ast.mode === "strict") {
-			const lk = this.strictkind(ast.left, l);
-			const rk = this.strictkind(ast.right, r);
-			if (lk === 'unknown' || rk === 'unknown') {
-				// unknown side compares as a number against numbers, as text against a string
-				const other = lk === 'unknown' ? rk : lk;
-				return (other === 'string') ? String(l) === String(r) : (other === 'unknown' || other === 'number') && this.numeric(l) === this.numeric(r);
-			}
-			return lk === rk && (lk === 'number' ? Number(l) === Number(r) : l === r);
+			return this.strictkind(l) === this.strictkind(r) && l === r;
+		}
+		const none = v => v === null || v === undefined;
+		if (none(l) || none(r)) {
+			return (none(l) || l === "") && (none(r) || r === "");
+		}
+		if (typeof l === 'boolean') {
+			l = this.numeric(r) !== null ? Number(l) : String(l);
+		}
+		if (typeof r === 'boolean') {
+			r = this.numeric(l) !== null ? Number(r) : String(r);
 		}
 		let [left, right] = this.pair(l, r);
 		if (!ast.mode && typeof left === 'string' && typeof right === 'string') {
@@ -4082,7 +4125,7 @@ async run(ast) {
 		} else {
 			const iterable = typeof countResult === "string" ? countResult.split('') : countResult;
 			let i = 1;
-			for (const [key, value] of Object.entries(iterable || countResult)) {
+			for (const [key, value] of Object.entries(iterable || countResult || {})) {
 				this.set('A_Index', i);
 				this.set('A_Key', key);
 				this.set('A_Val', value);
@@ -4117,7 +4160,8 @@ async run(ast) {
 	}
 	async literal(ast) { // 25
 		//this.print(`${this.getFunctionName()}`);
-		return String(ast.value).replace(/^"|"$/g, '');
+		// strings lose their quotes, everything else keeps its type
+		return typeof ast.value === 'string' ? ast.value.replace(/^"|"$/g, '') : ast.value;
 	}
 	// an already resolved value wrapped as a node so it isn't run again (method_call uses this)
 	async value(ast) { // 36
@@ -4147,12 +4191,7 @@ async run(ast) {
 		let obj = {};
 		for (let [key, value] of properties.entries()) {
 			let propName = key.replace(/"/g, "");
-			if (value.type === 27) {
-				this.print("Nested object found, creating recursively...");
-				obj[propName] = await this.object(value);
-			} else {
-				obj[propName] = String(value.value).replace(/"/g, "");
-			}
+			obj[propName] = await this.execute_ast(value);
 		}
 		return obj;
 	}
@@ -4205,8 +4244,8 @@ async run(ast) {
 	}
 	async concat(ast) { // 16
 		//this.print(`${this.getFunctionName()}`);
-		let left = String(await this.execute_ast(ast.left)).replace(/^"|"$/g, '');
-		let right = String(await this.execute_ast(ast.right)).replace(/^"|"$/g, '');
+		let left = this.text(await this.execute_ast(ast.left)).replace(/^"|"$/g, '');
+		let right = this.text(await this.execute_ast(ast.right)).replace(/^"|"$/g, '');
 
 		return (left + right)
 	}
@@ -4214,21 +4253,25 @@ async run(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let left = await this.execute_ast(ast.left)
 		let right = await this.execute_ast(ast.right)
-		left = left ? left : 0
-		right = right ? right : 0
+		left = Number.isNaN(left) || left ? left : 0
+		right = Number.isNaN(right) || right ? right : 0
 		return (await this.toFloat(left ) + await this.toFloat(right))
 	}
 	async sub(ast) { // 22
 		//this.print(`${this.getFunctionName()}`);
 		let left = await this.execute_ast(ast.left)
 		let right = await this.execute_ast(ast.right)
-		left = left ? left : 0
-		right = right ? right : 0
+		left = Number.isNaN(left) || left ? left : 0
+		right = Number.isNaN(right) || right ? right : 0
 		return (await this.toFloat(left ) - await this.toFloat(right))
 	}
 	async mul(ast) {
 		let left = await this.execute_ast(ast.left);
 		let right = await this.execute_ast(ast.right);
+		// nothing is 0 and a boolean is 1/0, same as the sums
+		if (left === null || left === undefined || typeof left === 'boolean') left = Number(left || 0);
+		if (right === null || right === undefined || typeof right === 'boolean') right = Number(right || 0);
+		if (Number.isNaN(left) || Number.isNaN(right)) return NaN;
 
 		let numLeft = parseFloat(left);
 		let numRight = parseFloat(right);
@@ -4255,14 +4298,14 @@ async run(ast) {
 		this.set(ast.variable.name, (varval - delta))
 	}	
 	async app(ast) { // 35
-		this.set(ast.variable.name, `${await this.execute_ast(ast.variable)}${await this.execute_ast(ast.delta)}`)
+		this.set(ast.variable.name, `${this.text(await this.execute_ast(ast.variable))}${this.text(await this.execute_ast(ast.delta))}`)
 	}
 	async div(ast) { // 24
 		//this.print(`${this.getFunctionName()}`);
 		let left = await this.execute_ast(ast.left)
 		let right = await this.execute_ast(ast.right)
-		left = left ? left : 0
-		right = right ? right : 0
+		left = Number.isNaN(left) || left ? left : 0
+		right = Number.isNaN(right) || right ? right : 0
 		return (await this.toFloat(left) / await this.toFloat(right))
 	}
 	async VALUE(ast) { // 36
@@ -4279,6 +4322,8 @@ async run(ast) {
 			return parseFloat(value);
 		} else if (typeof value === 'number') {
 			return parseFloat(value);
+		} else if (typeof value === 'boolean') {
+			return Number(value);
 		} else {
 			throw new Error('Unsupported type');
 		}
@@ -4290,6 +4335,9 @@ async run(ast) {
 		// arrays print joined, not as raw node output
 		if (Array.isArray(out)) {
 			out = out.join(",");
+		}
+		if (out === null || out === undefined) {
+			out = "";
 		}
 		if (typeof out === 'string') {
 			console.log(out.replace(/`n/g, '\n'));
@@ -4332,7 +4380,7 @@ async run(ast) {
 	async INTERNAL_strlen(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast)
-		return String(value[0]).length
+		return this.text(value[0]).length
 	}
 	async INTERNAL_abs(ast) {
 		//this.print(`${this.getFunctionName()}`);
@@ -4431,7 +4479,7 @@ async run(ast) {
 	async INTERNAL_Asc(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
-		value = value[0].replace(/^"(.*)"$/, '$1')
+		value = String(value[0]).replace(/^"(.*)"$/, '$1')
 		if (typeof value[0] === 'string' && value[0].length === 1) {
 			return value[0].charCodeAt(0);
 		} else {
@@ -4446,14 +4494,14 @@ async run(ast) {
 	async INTERNAL_InStr(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string1 = values[0];
+		let string1 = String(values[0]);
 		let string2 = values[1];
 		return string1.indexOf(string2) + 1;
 	}
 	async INTERNAL_Strepl(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		let find = values[1];
 		let replace = values[2];
 		return string.replace(new RegExp(find, 'g'), replace);
@@ -4461,13 +4509,13 @@ async run(ast) {
 	async INTERNAL_Upper(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		return string.toUpperCase();
 	}
 	async INTERNAL_Lower(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		return string.toLowerCase();
 	}
 	async INTERNAL_power(ast) {
@@ -4485,7 +4533,7 @@ async run(ast) {
 	}
 async INTERNAL_Rem(ast) {
     let values = await this.execute_ast(ast);
-    let string = values[0];
+    let string = typeof values[0] === "number" ? String(values[0]) : values[0];
     let regexPattern = values[1];
     let numMatches = values[2] !== undefined ? parseInt(values[2]) : 1;
 
@@ -4512,7 +4560,7 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_Repl(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		let regex = values[1];
 		let replace = values[2];
 		// 4th param (Recursive): falsy replaces the first match only, truthy replaces all
@@ -4524,7 +4572,7 @@ async INTERNAL_Rem(ast) {
 		let values = await this.execute_ast(ast);
 		// substring/pattern match, no \b boundaries
 		let pattern = new RegExp(values[0], 'g');
-		let text = values[1];
+		let text = String(values[1]);
 		// split on real newlines
 		let lines = text.split('\n');
 		let matchedLines = lines.filter(line => line.match(pattern));
@@ -4545,7 +4593,7 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_Strsplit(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		let separator = values[1];
 		return string.split(separator);
 	}
@@ -4577,7 +4625,7 @@ async INTERNAL_Rem(ast) {
 		let [haystack, needle, N] = values;
 		let flags = N === 2 ? '' : 'i';
 		let regex = new RegExp(needle, `g${flags}`);
-		let matches = haystack.match(regex);
+		let matches = String(haystack).match(regex);
 		return this.Core(matches ? matches.length : 0);
 	}
 	async INTERNAL_Dir(ast) {
@@ -4629,8 +4677,8 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_justify(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let text = values[0];
-		// literals arrive as strings and switch is strict, hence parseInt
+		let text = String(values[0]);
+		// switch is strict, hence parseInt
 		let justifyType = parseInt(values[1]); // 1 left, 2 center, 3 right
 		let width = values[2];
 
@@ -4671,7 +4719,7 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_strclean(ast) {
 		//this.print(`${this.getFunctionName()}`); //untested
 		let values = await this.execute_ast(ast);
-		let string = values[0];
+		let string = String(values[0]);
 		let N = values[1];
 
 		switch (N) {
@@ -4708,7 +4756,7 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_fwrite(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let data = values[0];
+		let data = this.text(values[0]);
 		let filePath = values[1];
 		const fs = require('fs');
 
@@ -4722,14 +4770,14 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_repeat(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let repeat = values[0];
+		let repeat = String(values[0]);
 		let num = values[1];
 		return repeat.repeat(await this.toFloat(num))
 	}
 	async INTERNAL_fappend(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		let data = values[0];
+		let data = this.text(values[0]);
 		let filePath = values[1];
 		const fs = require('fs');
 
@@ -4860,8 +4908,8 @@ async INTERNAL_Rem(ast) {
 	}
 	async INTERNAL_Count(ast) {
 		let value = await this.execute_ast(ast);
-		if (typeof value[0] === 'string') {
-			return value[0].split('').length;
+		if (typeof value[0] === 'string' || typeof value[0] === 'number') {
+			return String(value[0]).split('').length;
 		} else if (Array.isArray(value[0])) {
 			return value[0].length;
 		} else {
@@ -4870,8 +4918,8 @@ async INTERNAL_Rem(ast) {
 	}
 	async INTERNAL_MaxIndex(ast) {
 		let value = await this.execute_ast(ast);
-		if (typeof value[0] === 'string') {
-			return value[0].split('').length - 1;
+		if (typeof value[0] === 'string' || typeof value[0] === 'number') {
+			return String(value[0]).split('').length - 1;
 		} else if (Array.isArray(value[0])) {
 			return value[0].length - 1;
 		} else {
@@ -4884,8 +4932,8 @@ async INTERNAL_Rem(ast) {
 		let start = values[1];
 		let end = values.length >= 3 ? values[2] : undefined;
 
-		if (typeof source === 'string') {
-			return source.slice(start, end);
+		if (typeof source === 'string' || typeof source === 'number') {
+			return String(source).slice(start, end);
 		} else if (Array.isArray(source)) {
 			return source.slice(start, end);
 		} else {
@@ -5063,9 +5111,18 @@ async INTERNAL_Rem(ast) {
 		let values = await this.execute_ast(ast);
 		let value = values[0];
 		// no unbox()/Core() here, Core("") gives 0 and the length would come back as 1
+		if (value === null || value === undefined) return 1;
 		if (Array.isArray(value)) return value.length === 0 ? 1 : 0;
 		if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0 ? 1 : 0;
 		return String(value).length === 0 ? 1 : 0;
+	}
+	async INTERNAL_IsNull(ast) {
+		let values = await this.execute_ast(ast);
+		return this.unset(ast[0], values[0]) ? 1 : 0;
+	}
+	async INTERNAL_Default(ast) {
+		let values = await this.execute_ast(ast);
+		return this.unset(ast[0], values[0]) ? values[1] : values[0];
 	}
 	async INTERNAL_Purge(ast) {
 		let value = await this.execute_ast(ast);
@@ -5131,7 +5188,7 @@ async INTERNAL_IsString(ast) {
 async INTERNAL_IsNum(ast) {
     let value = await this.execute_ast(ast);
     // any number, int or float. isInt is the whole-number one
-    return !isNaN(value[0]) ? 1 : 0;
+    return typeof value[0] !== 'boolean' && value[0] !== null && !isNaN(value[0]) ? 1 : 0;
 }
 async INTERNAL_IsInt(ast) {
     let value = await this.execute_ast(ast);
@@ -5264,7 +5321,7 @@ async INTERNAL_IsFloat(ast) {
 		if (value !== null && typeof value === 'object') {
 			return JSON.stringify(value);
 		}
-		return String(value);
+		return this.text(value);
 	}
 	async INTERNAL_ToNum(ast) {
 		let values = await this.execute_ast(ast);
@@ -5281,6 +5338,9 @@ async INTERNAL_IsFloat(ast) {
 	}
 	async INTERNAL_Type(ast) {
 		let values = await this.execute_ast(ast);
+		if (values[0] === undefined) {
+			return "undefined";
+		}
 		let value = this.unbox(values[0]);
 		if (Array.isArray(value)) {
 			return "array";
@@ -5616,7 +5676,7 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'ToNum			'	,	'V'		,	'> [num] V as a number, 0 if it isnt one' ,
 			 '✓'  	,	'Uppercase		'	,	'S'		,	'> [str] S in uppercase' ,
 			 '✓'  	,	'Lowercase		'	,	'S'		,	'> [str] S in lowercase' ,
-			 '✓'  	,	'Type			'	,	'V'		,	'> [str] int/float/string/array/object/null of V' ,
+			 '✓'  	,	'Type			'	,	'V'		,	'> [str] int/float/string/boolean/array/object/null/undefined of V' ,
 			 '✓'  	,	'Trim			'	,	'S [,C]'		,	'> [str] trims whitespace [or any char in C] off both ends' ,
 			 '✓'  	,	'Reverse			'	,	'V'		,	'> [any] reverses a string or an array' ,
 			 '✓'  	,	'Contains		'	,	'H,N'		,	'> [num] 1 or 0 if N is inside H' ,
@@ -5657,7 +5717,9 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'Capitalize		'	,	'S'		,	'> [str] S with its first letter uppercase, the rest lowercase' ,
 			 '✓'  	,	'HasKey			'	,	'O,K'		,	'> [num] 1 or 0 if object O has key K' ,
 			 '✓'  	,	'Merge			'	,	'O1,O2'		,	'> [obj] O1 and O2 combined, O2 wins on key conflicts' ,
-			 '✓'  	,	'IsEmpty		'	,	'V'		,	'> [num] 1 or 0 if V (string/array/object) is empty'
+			 '✓'  	,	'IsEmpty		'	,	'V'		,	'> [num] 1 or 0 if V (string/array/object) is empty' ,
+			 '✓'  	,	'IsNull		'	,	'V'		,	'> [num] 1 or 0 if V is null, undefined or a variable that was never set' ,
+			 '✓'  	,	'Default		'	,	'V,D'		,	'> [any] V, or D if V is null, undefined or a variable that was never set'
 			])], 3));
 	}
 	async INTERNAL_PrintScript(ast) {
