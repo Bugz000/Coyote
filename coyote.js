@@ -44,13 +44,19 @@ const OPERATOR_OR = new StringToken('||', 'Logical OR');
 const OPERATOR_AND = new StringToken('&&', 'Logical AND');
 const OPERATOR_EQUAL = new RegexToken(/==|=/, 'Equality comparison');
 const OPERATOR_NOT_EQUAL = new RegexToken(/!==|!=/, 'Inequality comparison');
+const OPERATOR_STRICT_EQUAL = new StringToken('===', 'Strict equality - no coercing a numeric string to a number');
+const OPERATOR_STRICT_NOT_EQUAL = new StringToken('!==', 'Strict inequality');
+const OPERATOR_CASE_EQUAL = new StringToken('==', 'Case-sensitive equality');
+const OPERATOR_LOOSE_EQUAL = new StringToken('=', 'Case-insensitive equality');
+const OPERATOR_LOOSE_NOT_EQUAL = new StringToken('!=', 'Case-insensitive inequality');
+const OPERATOR_NOT = new RegexToken(/!(?!=)|not\b/i, 'Logical NOT, `!x` or `not x`');
 const OPERATOR_LESS = new StringToken('<', 'Less-than comparison');
 const OPERATOR_LESS_EQUAL = new StringToken('<=', 'Less-than-or-equal comparison');
 const OPERATOR_GREATER = new StringToken('>', 'Greater-than comparison');
 const OPERATOR_GREATER_EQUAL = new StringToken('>=', 'Greater-than-or-equal comparison');
 const OPERATOR_CONCAT = new RegexToken(/\.|[ \t]+/, 'Joins two values into a string, via `.` or plain whitespace');
-const OPERATOR_BITWISE_AND = new StringToken('&', 'Bitwise AND');
-const OPERATOR_BITWISE_OR = new StringToken('|', 'Bitwise OR');
+const OPERATOR_BITWISE_AND = new RegexToken(/&(?!&)/, 'Bitwise AND');
+const OPERATOR_BITWISE_OR = new RegexToken(/\|(?!\|)/, 'Bitwise OR');
 const OPERATOR_BITWISE_XOR = new StringToken('^', 'Bitwise XOR');
 const OPERATOR_BIT_SHIFT_RIGHT = new StringToken('>>', 'Bitwise right shift');
 const OPERATOR_BIT_SHIFT_LEFT = new StringToken('<<', 'Bitwise left shift');
@@ -95,6 +101,7 @@ var ItemType;
 	ItemType[ItemType["FOR"] = 31] = "FOR";
 	ItemType[ItemType["BREAK"] = 32] = "BREAK";
 	ItemType[ItemType["CONTINUE"] = 41] = "CONTINUE";
+	ItemType[ItemType["NOT"] = 42] = "NOT";
 	ItemType[ItemType["RETURN"] = 3] = "RETURN";
 	ItemType[ItemType["FUNCTION_DEFINITION"] = 4] = "FUNCTION_DEFINITION";
 	ItemType[ItemType["STATEMENT_MAX"] = 5] = "STATEMENT_MAX";
@@ -159,6 +166,33 @@ const ITEM = '├─';
 const LAST = '└─';
 const BINARY_OP_PRECEDENCE = [
 	[{
+		token: OPERATOR_OR,
+		type: ItemType.OR
+	}, ],
+	[{
+		token: OPERATOR_AND,
+		type: ItemType.AND
+	}, ],
+	[{
+		token: OPERATOR_STRICT_EQUAL,
+		type: ItemType.EQUALS,
+		extra: { mode: "strict" }
+	}, {
+		token: OPERATOR_STRICT_NOT_EQUAL,
+		type: ItemType.NOT_EQUALS,
+		extra: { mode: "strict" }
+	}, {
+		token: OPERATOR_CASE_EQUAL,
+		type: ItemType.EQUALS,
+		extra: { mode: "case" }
+	}, {
+		token: OPERATOR_LOOSE_NOT_EQUAL,
+		type: ItemType.NOT_EQUALS
+	}, {
+		token: OPERATOR_LOOSE_EQUAL,
+		type: ItemType.EQUALS
+	}, ],
+	[{
 		token: OPERATOR_LESS_EQUAL,
 		type: ItemType.LESS_EQUAL
 	}, {
@@ -176,14 +210,25 @@ const BINARY_OP_PRECEDENCE = [
 		type: ItemType.CONCAT
 	}, ],
 	[{
-		token: OPERATOR_BITWISE_AND,
-		type: ItemType.BITWISE_AND
-	}, {
 		token: OPERATOR_BITWISE_OR,
 		type: ItemType.BITWISE_OR
-	}, {
+	}, ],
+	[{
 		token: OPERATOR_BITWISE_XOR,
 		type: ItemType.BITWISE_XOR
+	}, ],
+	[{
+		token: OPERATOR_BITWISE_AND,
+		type: ItemType.BITWISE_AND
+	}, ],
+	[{
+		token: OPERATOR_BIT_SHIFT_LEFT,
+		type: ItemType.BIT_SHIFT,
+		extra: { direction: "LEFT" }
+	}, {
+		token: OPERATOR_BIT_SHIFT_RIGHT,
+		type: ItemType.BIT_SHIFT,
+		extra: { direction: "RIGHT" }
 	}, ],
 	[{
 		token: OPERATOR_ADD,
@@ -198,13 +243,6 @@ const BINARY_OP_PRECEDENCE = [
 	}, {
 		token: OPERATOR_DIV,
 		type: ItemType.DIV
-	}, ],
-	[{
-		token: OPERATOR_EQUAL,
-		type: ItemType.EQUALS
-	}, {
-		token: OPERATOR_NOT_EQUAL,
-		type: ItemType.NOT_EQUALS
 	}, ],
 ];
 /** Token that matches when position is at the end of the input. */
@@ -764,6 +802,17 @@ class CoyoteParser extends Parser {
 		const expr = this.parse_binary_op(0);
 		this.scan(WHITESPACE);
 		//console.log(expr)
+		// cond ? a : b sits below everything else, concat included
+		if (expr.found() && this.scan(OPERATOR_TERNARY_IF).found()) {
+			const if_true = this.parse_expression().or_else_throw(`Expected expression after '?'`);
+			this.scan(OPERATOR_TERNARY_ELSE).or_else_throw(`Expected ':' after '?' expression`);
+			return this.found({
+				type: ItemType.TERNARY,
+				condition: expr.get(),
+				if_true,
+				if_false: this.parse_expression().or_else_throw(`Expected expression after ':'`),
+			});
+		}
 		return expr;
 	}
 	parse_expression_assignment() {
@@ -800,8 +849,12 @@ class CoyoteParser extends Parser {
 	}
 	parse_binary_op(op_index) {
 		const has_ops_left = op_index < BINARY_OP_PRECEDENCE.length;
-		const left = op_index === 2 ? this.parse_operator_concat() : has_ops_left ? this.parse_binary_op(op_index + 1) : this.parse_unary_expression();
-		if (has_ops_left && left.found()) {
+		// the bitwise level takes concat as its operand, everything else just the next level down
+		const operand = () => op_index === 7 ? this.parse_operator_concat() : has_ops_left ? this.parse_binary_op(op_index + 1) : this.parse_unary_expression();
+		let left = operand();
+		// loops rather than recursing on the same level so 10 - 3 - 2 groups from the left
+		while (has_ops_left && left.found()) {
+			let matched = false;
 			for (const op of BINARY_OP_PRECEDENCE[op_index]) {
 				const lookahead_parser = this.copy();
 				lookahead_parser.scan(WHITESPACE);
@@ -809,18 +862,24 @@ class CoyoteParser extends Parser {
 									//console.log(op)
 					this.sync_to(lookahead_parser);
 					this.scan(WHITESPACE);
-					return this.found({
+					left = this.found({
 						type: op.type,
 						left: left.get(),
-						right: this.parse_binary_op(op_index).or_else_throw(`Expected expression after '${op.token}'`),
+						right: operand().or_else_throw(`Expected expression after '${op.token}'`),
+						...op.extra,
 					});
+					matched = true;
+					break;
 				}
+			}
+			if (!matched) {
+				break;
 			}
 		}
 		return left;
 	}
 	parse_operator_concat() {
-		const left = this.parse_binary_op(3);
+		const left = this.parse_binary_op(8);
 		if (left.found()) {
 			const lookahead_parser = this.copy();
 			const concat_op = lookahead_parser.scan(OPERATOR_CONCAT);
@@ -844,6 +903,15 @@ class CoyoteParser extends Parser {
 		return left;
 	}
 	parse_unary_expression() {
+		if (this.scan(OPERATOR_NOT).found()) {
+			this.scan(WHITESPACE);
+			const expr = this.parse_unary_expression();
+			expr.or_else_throw("Expected expression after '!'");
+			return this.found({
+				type: ItemType.NOT,
+				expression: expr.get()
+			});
+		}
 		if (this.scan(OPERATOR_SUB).found()) {
 			const expr = this.parse_unary_expression();
 			expr.or_else_throw("Expected expression after '-'");
@@ -1360,6 +1428,22 @@ function convert_expression(e) {
 			children: [
 				convert_expression(e.left),
 				convert_expression(e.right),
+			]
+		};
+	}
+	if (e.type === ItemType.NOT) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [convert_expression(e.expression)]
+		};
+	}
+	if (e.type === ItemType.TERNARY) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [
+				convert_expression(e.condition),
+				convert_expression(e.if_true),
+				convert_expression(e.if_false),
 			]
 		};
 	}
@@ -2049,7 +2133,7 @@ class ASTExecutor {
 			{ code: 'x := 5 <= 4\nprint(x)', expected: 'false' },
 			{ code: 'x := "abc" == "abc"\nprint(x)', expected: 'true' },
 			{ code: 'x := "abc" == "abd"\nprint(x)', expected: 'false' },
-			{ code: 'x := 2 & 3 | 4\nprint(x)', expected: '2' },
+			{ code: 'x := 2 & 3 | 4\nprint(x)', expected: '6' }, // was 2, only because same-level operators used to group from the right: 2 & (3 | 4). & binds tighter than |, so (2 & 3) | 4
 			{ code: 'x := "Hello" . " " . "World"\nprint(x)', expected: 'Hello World' },
 			{ code: 'x := "a" "b" "c" "d"\nprint(x)', expected: 'abcd' },
 			{ code: 'x := "a" . 5\nprint(x)', expected: 'a5' },
@@ -2168,6 +2252,156 @@ class ASTExecutor {
 			{ code: 's := ""\nloop ({"x": 1, "y": 2}) { s := s . A_Key . A_Val }\nprint(s)', expected: 'x1y2' }, // object loop
 			{ code: 's := ""\nloop (2) { loop (2) { s := s . A_Index } }\nprint(s)', expected: '1212' }, // A_Index restarts for the inner loop and the outer one picks itself back up
 			{ code: 'n := 0\nloop (5) { n++\nif (n == 2) { break } else { continue } }\nprint(n)', expected: '2' }, // break and continue either side of one if/else
+			
+			// same-level operators group from the left (they used to group from the right)
+			{ code: 'r := 10 - 3 - 2\nprint(r)', expected: '5' },
+			{ code: 'r := 20 / 5 / 2\nprint(r)', expected: '2' },
+			{ code: 'r := 1 + 2 - 3 + 4\nprint(r)', expected: '4' },
+			{ code: 'r := 2 * 3 / 2\nprint(r)', expected: '3' },
+			{ code: 'r := 100 / 10 / 5 / 2\nprint(r)', expected: '1' },
+			{ code: 'r := 10 - 2 * 3 - 1\nprint(r)', expected: '3' },
+			{ code: 'r := 8 >> 1 >> 1\nprint(r)', expected: '2' },
+			{ code: 'r := 1 << 1 << 2\nprint(r)', expected: '8' },
+			{ code: 'r := 16 >> 2 << 1\nprint(r)', expected: '8' },
+			{ code: 'r := "a" . "b" . "c"\nprint(r)', expected: 'abc' }, // concat chains
+			
+			// precedence: mul > add > shift > concat > & > ^ > | > comparison > equality > && > || > ternary
+			{ code: 'r := 1 + 2 * 3\nprint(r)', expected: '7' },
+			{ code: 'r := (1 + 2) * 3\nprint(r)', expected: '9' },
+			{ code: 'a := 2\nr := a + 1 = 3\nprint(r)', expected: 'true' }, // equality is below add (it used to be tighter than everything: a + (1 = 3))
+			{ code: 'r := 1 + 2 * 3 = 7\nprint(r)', expected: 'true' },
+			{ code: 'r := 2 + 3 = 5\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 < 2 = 3 < 4\nprint(r)', expected: 'true' }, // comparison is tighter than equality
+			{ code: 'r := 1 < 2 = 4 < 3\nprint(r)', expected: 'false' },
+			{ code: 'r := 1 + 1 << 2\nprint(r)', expected: '8' }, // add is tighter than shift
+			{ code: 'r := 2 << 1 + 1\nprint(r)', expected: '8' },
+			{ code: 'r := 1 << 2 | 1\nprint(r)', expected: '5' }, // shift is tighter than |
+			{ code: 'r := 1 | 1 << 2\nprint(r)', expected: '5' },
+			{ code: 'r := 1 << 2 = 4\nprint(r)', expected: 'true' }, // and shift is tighter than equality
+			{ code: 'r := 1 < 1 << 1\nprint(r)', expected: 'true' }, // and comparison
+			{ code: 'r := 8 >> 1 > 3\nprint(r)', expected: 'true' },
+			{ code: 'r := 2 & 3 | 4\nprint(r)', expected: '6' }, // & is tighter than |
+			{ code: 'r := 1 | 2 & 3\nprint(r)', expected: '3' },
+			{ code: 'r := 6 ^ 3 & 1\nprint(r)', expected: '7' }, // & is tighter than ^
+			{ code: 'r := 1 | 6 ^ 3\nprint(r)', expected: '5' }, // ^ is tighter than |
+			{ code: 'r := 6 & 3 = 2\nprint(r)', expected: 'true' }, // bitwise is tighter than equality
+			{ code: 'r := "a" . 1 + 2\nprint(r)', expected: 'a3' }, // concat is below add
+			{ code: 'r := 1 << 2 . 3\nprint(r)', expected: '43' }, // and below shift
+			{ code: 'r := "x" . 1 = "x1"\nprint(r)', expected: 'true' }, // concat is tighter than equality
+			{ code: 'r := 1 . 2 = 12\nprint(r)', expected: 'true' },
+			{ code: 'r := "a" . "b" ? "yes" : "no"\nprint(r)', expected: 'yes' }, // and the ternary is below concat
+			
+			// && and || (they were tokens with no parser behind them, and & / | were eating the first half)
+			{ code: 'r := 6 & 3\nprint(r)', expected: '2' }, // & alone is still bitwise
+			{ code: 'r := 6 | 1\nprint(r)', expected: '7' }, // | alone is still bitwise
+			{ code: 'r := 6 && 3\nprint(r)', expected: '3' },
+			{ code: 'r := "" && 3\nprint(r)', expected: '' }, // a falsy left comes back as it is
+			{ code: 'r := "a" || "b"\nprint(r)', expected: 'a' },
+			{ code: 'r := "" || "b"\nprint(r)', expected: 'b' },
+			{ code: 'r := "" || "a" && "b"\nprint(r)', expected: 'b' }, // && binds tighter than ||
+			{ code: 'r := "a" || "" && "b"\nprint(r)', expected: 'a' }, // so the right side here is ("" && "b")
+			{ code: 'r := 1 = 1 && 2 = 2\nprint(r)', expected: 'true' }, // equality is tighter than &&
+			{ code: 'r := 1 = 2 || 2 = 2\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 = 2 || 3 = 3 && 4 = 4\nprint(r)', expected: 'true' },
+			{ code: 'i := 0\nr := "a" || i++\nprint(i)', expected: '0' }, // || short-circuits
+			{ code: 'i := 0\nr := "" && i++\nprint(i)', expected: '0' }, // && short-circuits
+			{ code: 'i := 0\nr := "" || i++\nprint(i)', expected: '1' }, // and does run the right side when it has to
+			{ code: 'i := 0\nr := "a" && i++\nprint(i)', expected: '1' },
+			{ code: 'r := "" || "" || "c"\nprint(r)', expected: 'c' },
+			{ code: 'r := "a" && "b" && "c"\nprint(r)', expected: 'c' },
+			
+			// ternary
+			{ code: 'r := 1 ? 2 : 3\nprint(r)', expected: '2' },
+			{ code: 'r := "" ? 2 : 3\nprint(r)', expected: '3' },
+			{ code: 'r := "" ? 1 : "" ? 2 : 3\nprint(r)', expected: '3' }, // chains to the right
+			{ code: 'r := "a" ? "" ? 1 : 2 : 3\nprint(r)', expected: '2' }, // nests in the true branch
+			{ code: 'r := 1 = 1 ? "y" : "n"\nprint(r)', expected: 'y' },
+			{ code: 'r := 5 > 3 ? "big" : "small"\nprint(r)', expected: 'big' },
+			{ code: 'r := 1 + 1 = 3 ? "y" : "n"\nprint(r)', expected: 'n' },
+			{ code: 'i := 0\nr := 1 ? "a" : i++\nprint(i)', expected: '0' }, // only the branch it takes runs
+			{ code: 'i := 0\nr := "" ? i++ : "b"\nprint(i)', expected: '0' },
+			{ code: 'x := 4\nr := x > 3 ? x * 2 : x\nprint(r)', expected: '8' }, // branches are full expressions
+			{ code: 'a := 1\nb := 2\nr := "" ? a : b\nprint(r)', expected: '2' },
+			{ code: 'r := [1 ? 2 : 3, 4 ? 5 : 6]\nprint(r[0] . r[1])', expected: '25' }, // inside an array literal
+			{ code: 'print(1 ? "a" : "b")\nprint("" ? "a" : "b")', expected: 'a\nb' }, // as a function argument
+			
+			// unary
+			{ code: 'r := !1\nprint(r)', expected: 'false' },
+			{ code: 'r := !""\nprint(r)', expected: 'true' },
+			{ code: 'r := !"a"\nprint(r)', expected: 'false' },
+			{ code: 'r := !!"a"\nprint(r)', expected: 'true' },
+			{ code: 'r := !!""\nprint(r)', expected: 'false' },
+			{ code: 'r := not ""\nprint(r)', expected: 'true' },
+			{ code: 'r := NOT "a"\nprint(r)', expected: 'false' }, // case-insensitive
+			{ code: 'r := not(1)\nprint(r)', expected: 'false' },
+			{ code: 'r := !(1 = 2)\nprint(r)', expected: 'true' },
+			{ code: 'r := !(1 = 1)\nprint(r)', expected: 'false' },
+			{ code: 'x := "a"\nr := !x\nprint(r)', expected: 'false' }, // on a variable
+			{ code: 'x := ""\nr := !x\nprint(r)', expected: 'true' },
+			{ code: 'x := "a"\nif (x) { a := "t" } else { a := "f" }\nif (!x) { b := "t" } else { b := "f" }\nprint(a . b)', expected: 'tf' }, // ! is always the opposite of if
+			{ code: 'x := ""\nif (x) { a := "t" } else { a := "f" }\nif (!x) { b := "t" } else { b := "f" }\nprint(a . b)', expected: 'ft' },
+			{ code: 'r := !"" && "b"\nprint(r)', expected: 'b' }, // ! is tighter than &&
+			{ code: 'r := !1 || "z"\nprint(r)', expected: 'z' }, // and than ||
+			{ code: 'r := 1 != 2\nprint(r)', expected: 'true' }, // != is still not-equal
+			{ code: 'r := 1 != 1\nprint(r)', expected: 'false' },
+			{ code: 'notify := 5\nnothing := 6\nnot_x := 7\nr := notify + nothing + not_x\nprint(r)', expected: '18' }, // names that start with not are still names
+			{ code: 'r := -3\nprint(r)', expected: '-3' },
+			{ code: 'r := -(2 + 3)\nprint(r)', expected: '-5' },
+			{ code: 'r := 5 - -1\nprint(r)', expected: '6' },
+			{ code: 'r := 2 * -3\nprint(r)', expected: '-6' },
+			{ code: 'r := -2 * 3\nprint(r)', expected: '-6' },
+			{ code: 'x := 5\nprint(-x)\nprint(x -1)\nprint(x - 1)\nprint(x-1)\nprint(3 -x)\nprint(-x + 10)\nprint(+x)', expected: '-5\n4\n4\n4\n-2\n5\n5' }, // unary minus, and a minus with no space that is still subtraction
+			
+			// equality: = ignores case, == doesn't, === also refuses to coerce
+			{ code: 'r := "a" = "A"\nprint(r)', expected: 'true' },
+			{ code: 'r := "a" == "A"\nprint(r)', expected: 'false' },
+			{ code: 'r := "a" === "A"\nprint(r)', expected: 'false' },
+			{ code: 'r := "a" != "A"\nprint(r)', expected: 'false' }, // != goes with =
+			{ code: 'r := "a" !== "A"\nprint(r)', expected: 'true' }, // !== goes with ===
+			{ code: 'r := "abc" = "abc"\nprint(r)', expected: 'true' },
+			{ code: 'r := "abc" == "abc"\nprint(r)', expected: 'true' },
+			{ code: 'r := "abc" === "abc"\nprint(r)', expected: 'true' },
+			{ code: 'r := "abc" = "abd"\nprint(r)', expected: 'false' },
+			{ code: 'r := "abc" !== "abc"\nprint(r)', expected: 'false' },
+			{ code: 'r := "1" = 1\nprint(r)', expected: 'true' }, // loose: a numeric string is a number
+			{ code: 'r := "1" == 1\nprint(r)', expected: 'true' },
+			{ code: 'r := "1" === 1\nprint(r)', expected: 'false' }, // strict: it is not
+			{ code: 'r := 1 === 1\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 === 1.0\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 === 2\nprint(r)', expected: 'false' },
+			{ code: 'r := "1" === "1"\nprint(r)', expected: 'true' },
+			{ code: 'r := "1" === "1.0"\nprint(r)', expected: 'false' }, // two strings are compared as text
+			{ code: 'r := "1" == "1.0"\nprint(r)', expected: 'true' }, // but loosely they are both numbers
+			{ code: 'r := "1" = "1.0"\nprint(r)', expected: 'true' },
+			{ code: 'r := "01" == 1\nprint(r)', expected: 'true' },
+			{ code: 'r := "01" === 1\nprint(r)', expected: 'false' },
+			{ code: 'r := 1 !== "1"\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 !== 1\nprint(r)', expected: 'false' },
+			{ code: 'r := "a" !== "a"\nprint(r)', expected: 'false' },
+			{ code: 'r := 1 != 2\nprint(r)', expected: 'true' },
+			{ code: 'r := "a" != "b"\nprint(r)', expected: 'true' },
+			{ code: 'r := true === true\nprint(r)', expected: 'true' },
+			{ code: 'r := true === "true"\nprint(r)', expected: 'false' }, // a boolean is not its name
+			{ code: 'r := true == "true"\nprint(r)', expected: 'true' },
+			{ code: 'r := true !== false\nprint(r)', expected: 'true' },
+			{ code: 'r := "" === ""\nprint(r)', expected: 'true' },
+			{ code: 'x := 1\nprint(x === 1)\nprint(x == 1)\nprint(x = 1)\nprint(x === 2)', expected: 'true\ntrue\ntrue\nfalse' }, // variables holding a number
+			{ code: 'x := 1\nprint(x === "1")\nprint(x === "1.0")\nprint(x === 1.0)', expected: 'true\nfalse\ntrue' }, // a variable can't say whether it was quoted, so it lines up with a string as text or a number as a number
+			{ code: 'y := 1 + 1\nprint(y === 2)\nprint(y !== 2)', expected: 'true\nfalse' }, // a computed number
+			{ code: 's := "abc"\nprint(s === "abc")\nprint(s === "ABC")\nprint(s == "ABC")\nprint(s = "ABC")\nprint(s != "ABC")', expected: 'true\nfalse\nfalse\ntrue\nfalse' }, // a variable holding a string
+			{ code: 'if ("1" === 1) { print("y") } else { print("n") }\nif ("1" == 1) { print("y") } else { print("n") }', expected: 'n\ny' }, // in an if condition
+			{ code: 'x := 5\nif (x === 5) { print("y") } else { print("n") }\nif (x !== 5) { print("y") } else { print("n") }', expected: 'y\nn' },
+			
+			// everything that shares a first character with the new operators still works
+			{ code: 'r := 1 <= 1\nprint(r)', expected: 'true' },
+			{ code: 'r := 2 >= 3\nprint(r)', expected: 'false' },
+			{ code: 'r := 1 < 2\nprint(r)', expected: 'true' },
+			{ code: 'r := 2 > 1\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 << 3\nprint(r)', expected: '8' },
+			{ code: 'r := 16 >> 2\nprint(r)', expected: '4' },
+			{ code: 'x := 3\nx += 2\nx -= 1\nprint(x)', expected: '4' }, // compound assignment (uses the = token too)
+			{ code: 'x := 5\nx++\nx--\nx++\nprint(x)', expected: '6' },
+			{ code: 'r := !"a" . "x"\nprint(r)', expected: 'falsex' }, // a unary in front of a concat
 
 			// arrays and objects
 			{ code: 'arr := [10, 20, 30]\nprint(arr[1])', expected: '20' },
@@ -2378,6 +2612,15 @@ class ASTExecutor {
 			{ code: 'loop (2) { CONTINUE }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─CONTINUE\n' }, // keyword is case-insensitive
 			{ code: 'loop (2) { if (1) { break } else { continue } }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─IF\n      ├─condition\n      │ └─1\n      ├─if_true\n      │ └─BREAK\n      └─if_false\n        └─CONTINUE\n' },
 			{ code: 'continued := 1', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR continued\n  └─right\n    └─1\n' }, // not a CONTINUE
+			{ code: 'x := a + 1 = 3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─EQUALS\n      ├─ADD\n      │ ├─VAR a\n      │ └─1\n      └─3\n' }, // equality is below add
+			{ code: 'x := 10 - 3 - 2', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─SUB\n      ├─SUB\n      │ ├─10\n      │ └─3\n      └─2\n' }, // groups from the left
+			{ code: 'x := 1 || 2 && 3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OR\n      ├─1\n      └─AND\n        ├─2\n        └─3\n' }, // && under ||
+			{ code: 'x := !a', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─NOT\n      └─VAR a\n' },
+			{ code: 'x := not a', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─NOT\n      └─VAR a\n' }, // same node as !
+			{ code: 'x := a ? 1 : 2', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TERNARY\n      ├─VAR a\n      ├─1\n      └─2\n' },
+			{ code: 'x := 2 & 3 | 4', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─BITWISE_OR\n      ├─BITWISE_AND\n      │ ├─2\n      │ └─3\n      └─4\n' }, // & under |
+			{ code: 'x := 1 << 2 + 1', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─BIT_SHIFT\n      ├─1\n      └─ADD\n        ├─2\n        └─1\n' }, // add under shift
+			{ code: 'x := 1 < 2 = 3 < 4', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─EQUALS\n      ├─LESS_THAN\n      │ ├─1\n      │ └─2\n      └─LESS_THAN\n        ├─3\n        └─4\n' }, // comparison under equality
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		//     Format(N) {       
 		//     Print(S) {        
@@ -2816,13 +3059,48 @@ class ASTExecutor {
 	}
 	async EQUALS(ast) { // 10
 		//this.print(`${this.getFunctionName()}`);
-		const [left, right] = this.pair(await this.execute_ast(ast.left), await this.execute_ast(ast.right));
-		return left === right;
+		return await this.equality(ast);
 	}
 	async NOT_EQUALS(ast) { // 11
 		//this.print(`${this.getFunctionName()}`);
-		const [left, right] = this.pair(await this.execute_ast(ast.left), await this.execute_ast(ast.right));
-		return left !== right;
+		return !(await this.equality(ast));
+	}
+	async NOT(ast) { // 42
+		// same truthiness as if, so !x is always the opposite of if (x)
+		return !(await this.execute_ast(ast.expression));
+	}
+	// = ignores case, == doesn't, === also won't turn a numeric string into a
+	// number ("1" === 1 is false). literals still remember whether they were
+	// quoted, variables don't, so a numeric-looking string in one is "unknown"
+	// and lines up with either kind
+	strictkind(node, value) {
+		if (node.type === ItemType.LITERAL) {
+			return typeof node.value === 'string' ? 'string' : typeof node.value;
+		}
+		if (typeof value === 'string') {
+			return this.numeric(value) === null ? 'string' : 'unknown';
+		}
+		return typeof value;
+	}
+	async equality(ast) {
+		const l = await this.execute_ast(ast.left);
+		const r = await this.execute_ast(ast.right);
+		if (ast.mode === "strict") {
+			const lk = this.strictkind(ast.left, l);
+			const rk = this.strictkind(ast.right, r);
+			if (lk === 'unknown' || rk === 'unknown') {
+				// numeric on the other side (or unknown too) compares as numbers, a string compares as text
+				const other = lk === 'unknown' ? rk : lk;
+				return (other === 'string') ? String(l) === String(r) : (other === 'unknown' || other === 'number') && this.numeric(l) === this.numeric(r);
+			}
+			return lk === rk && (lk === 'number' ? Number(l) === Number(r) : l === r);
+		}
+		let [left, right] = this.pair(l, r);
+		if (!ast.mode && typeof left === 'string' && typeof right === 'string') {
+			left = left.toLowerCase();
+			right = right.toLowerCase();
+		}
+		return left === right;
 	}
 	async GREATER_THAN(ast) { // 12
 		//this.print(`${this.getFunctionName()}`);
