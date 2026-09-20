@@ -1656,8 +1656,14 @@ class ASTExecutor {
 			return;
 		}
 		CoyoteVar.bind(ASTExecutor.prototype);
+		// the asserts read A_pi, so it has to exist before they start rather
+		// than relying on run() getting there first
+		this.set("A_pi", 3.141592653589793238462643383279502288419716939937);
 		console.log("Verifying asserts")
-		this.verifyInternalFunctions()
+		// kept so the script can be held back until they've finished - they
+		// swap console.log and share the root scope, so a script running at
+		// the same time can steal their output or overwrite their variables
+		this.verified = this.verifyInternalFunctions()
 		console.log("AST Executor Initialised.")
 		console.log("Script Start.")
 		console.log(" ")
@@ -2992,7 +2998,6 @@ class ASTExecutor {
 		this.set("A_isWindows", process.platform === "win32");
 		this.set("A_isLinux", process.platform === "linux");
 		this.set("A_isMacOS", process.platform === "darwin");
-		this.set("A_pi", 3.141592653589793238462643383279502288419716939937);
 		
 		
 		// You can now return or execute AST with the collected functions
@@ -5274,4 +5279,4 @@ console.log(r)
 console.log(print_Coyote_tree(r));
 fs.writeFileSync('output.txt', JSON.stringify(r, null, 2));
 const executer = new ASTExecutor()
-executer.run(r)
+executer.verified.then(() => executer.run(r))
