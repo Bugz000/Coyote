@@ -79,7 +79,10 @@ const LITERAL_NUMBER = new RegexToken(/-?(0[xX][0-9a-fA-F]+(_[0-9a-fA-F]+)*|0[bB
 const LITERAL_BOOLEAN = new RegexToken(/(true|false)\b/i, 'Boolean literal, `true` or `false` (case-insensitive)');
 const LITERAL_NULL = new RegexToken(/(null|nil|undefined)\b/i, 'Empty literal, `null`, or `nil` / `undefined` for no value (case-insensitive)');
 const LITERAL_NAN = new RegexToken(/(nan|infinity)\b/i, 'Special number literal, `NaN` or `Infinity` (case-insensitive)');
-const LITERAL_STRING = new RegexToken(/"[^"]*"/, 'Double-quoted string literal');
+const LITERAL_STRING = new RegexToken(/"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'/, 'Double or single quoted string literal, `\\` starts an escape');
+const LITERAL_HEREDOC = new RegexToken(/<<([A-Za-z_][A-Za-z0-9_]*)[ \t]*\r?\n(?:[\s\S]*?\r?\n)?[ \t]*\1(?![A-Za-z0-9_])/, 'Heredoc, `<<END` up to a line that starts with END, kept exactly as written');
+const ESCAPE = new RegexToken(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[\s\S])/, 'Backslash escape inside a string, `\\n`, `\\t`, `\\"`, `\\\\`, `\\u{1F600}`');
+const OPERATOR_BACKTICK = new StringToken('`', 'Begins and ends a template string, `${expr}` inside it gets worked out');
 const KEYWORD_IF = new RegexToken(/if\b/i, 'Begins a conditional statement');
 const KEYWORD_ELSE = new RegexToken(/else\b/i, 'Begins the alternate branch of a conditional statement');
 const KEYWORD_LOOP = new RegexToken(/loop\b/i, 'Begins a loop statement');
@@ -142,6 +145,7 @@ var ItemType;
 	ItemType[ItemType["DIRECTIVE"] = 38] = "DIRECTIVE";
 	ItemType[ItemType["CLASS_DEFINITION"] = 39] = "CLASS_DEFINITION";
 	ItemType[ItemType["NEW_INSTANCE"] = 40] = "NEW_INSTANCE";
+	ItemType[ItemType["TEMPLATE"] = 43] = "TEMPLATE";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -1022,12 +1026,71 @@ class CoyoteParser extends Parser {
 				value: string.get(),
 			});
 		}
+		if (this.input[this.position] === '"' || this.input[this.position] === "'") {
+			this.not_found().or_else_throw('Unterminated string');
+		}
+		const heredoc = this.scan(LITERAL_HEREDOC);
+		if (heredoc.found()) {
+			// everything between the <<NAME line and the NAME line, minus the last newline
+			const body = heredoc.get().match(/^<<(\w+)[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)[ \t]*\1$/)[2].replace(/\r?\n$/, '').replace(/\r\n/g, '\n');
+			return this.found({
+				type: ItemType.TEMPLATE,
+				parts: body === '' ? [] : [body],
+			});
+		}
 		//if (this.loopmode == true) {
-			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_deref()).or(() => this.parse_expression_new()).or(() => this.parse_expression_variable())
+			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_template()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_deref()).or(() => this.parse_expression_new()).or(() => this.parse_expression_variable())
 		//} else {
 		//	console.log(this.loopmode)
 		//	return this.parse_expression_function_call().or(() => this.parse_expression_variable());
 		//}
+	}
+	// `text ${expr} text` - the text part takes the same escapes as a string, \${ is a plain ${
+	parse_expression_template() {
+		this.log("parse_expression_template")
+		if (this.scan(OPERATOR_BACKTICK).not_found()) {
+			return this.not_found();
+		}
+		const parts = [];
+		let text = '';
+		while (true) {
+			if (this.at_end()) {
+				this.not_found().or_else_throw('Unterminated template string');
+			}
+			const ch = this.input[this.position];
+			if (ch === '`') {
+				this.position++;
+				break;
+			}
+			const escape = this.scan(ESCAPE);
+			if (escape.found()) {
+				text += unescape_seq(escape.get());
+				continue;
+			}
+			if (ch === '$' && this.input[this.position + 1] === '{') {
+				if (text !== '') {
+					parts.push(text);
+					text = '';
+				}
+				this.position += 2;
+				parts.push(this.parse_expression().or_else_throw(`Expected expression after '\${'`));
+				this.scan(WHITESPACE);
+				this.scan(OPERATOR_RBRACE).or_else_throw(`Expected '}' to close '\${'`);
+				continue;
+			}
+			// files with windows line endings still give \n inside a template
+			if (ch !== '\r' || this.input[this.position + 1] !== '\n') {
+				text += ch;
+			}
+			this.position++;
+		}
+		if (text !== '') {
+			parts.push(text);
+		}
+		return this.found({
+			type: ItemType.TEMPLATE,
+			parts,
+		});
 	}
 	parse_expression_variable() {
 		return this.scan(VARIABLE).map(name => ({
@@ -1227,6 +1290,26 @@ class CoyoteParser extends Parser {
 		//console.log(this.print_current_position()[0]);
 		//console.log(this.print_current_position()[1]);
 	}
+}
+const ESCAPES = { n: '\n', t: '\t', r: '\r', '0': '\0', '"': '"', "'": "'", '\\': '\\', '`': '`', '$': '$' };
+// one escape, \n \u{41} etc. anything unknown stays as written so \d still reaches a regex
+function unescape_seq(seq) {
+	if (seq[1] === 'u' && seq.length > 2) {
+		const code = parseInt(seq.slice(2).replace(/[{}]/g, ''), 16);
+		return code <= 0x10FFFF ? String.fromCodePoint(code) : seq;
+	}
+	return seq[1] in ESCAPES ? ESCAPES[seq[1]] : seq;
+}
+function unescape_string(text) {
+	return text.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[\s\S])/g, unescape_seq);
+}
+// a quoted literal as the parser kept it, minus the quotes and with the escapes worked out
+function unquote(text) {
+	const quote = text[0];
+	if (text.length > 1 && (quote === '"' || quote === "'") && text[text.length - 1] === quote) {
+		return unescape_string(text.slice(1, -1).replace(/\r\n/g, '\n'));
+	}
+	return text;
 }
 function critical(err) {
 	console.log("ERROR: " + err)
@@ -1516,6 +1599,12 @@ function convert_expression(e) {
 				name: chalk.gray('target'),
 				children: [convert_expression(e.target)],
 			}],
+		};
+	}
+	if (e.type === ItemType.TEMPLATE) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: e.parts.map(p => typeof p === 'string' ? { name: chalk.yellow(JSON.stringify(p)) } : convert_expression(p)),
 		};
 	}
 	if (e.type === ItemType.NEW_INSTANCE) {
@@ -2875,6 +2964,149 @@ class ASTExecutor {
 			{ code: 'ToString(0x10)', expected: '16' },
 			{ code: 'Json(null)', expected: 'null' },
 			{ code: 'Json(true)', expected: 'true' },
+			
+			// string escapes
+			{ code: '"a\\nb"', expected: 'a\nb' },
+			{ code: '"a\\tb"', expected: 'a\tb' },
+			{ code: '"a\\rb"', expected: 'a\rb' },
+			{ code: '"\\0"', expected: '\0' },
+			{ code: '"say \\"hi\\""', expected: 'say "hi"' },
+			{ code: '"\\""', expected: '"' },
+			{ code: '"\\"\\""', expected: '""' },
+			{ code: '"\\\\"', expected: '\\' },
+			{ code: '"a\\\\nb"', expected: 'a\\nb' }, // an escaped backslash then an n, not a newline
+			{ code: '"\\$"', expected: '$' },
+			{ code: '"\\`"', expected: '`' },
+			{ code: '"\\\'"', expected: "'" },
+			{ code: '"\\u{41}"', expected: 'A' },
+			{ code: '"\\u{1F600}"', expected: '\u{1F600}' },
+			{ code: '"\\u0041"', expected: 'A' },
+			{ code: '"\\u{110000}"', expected: '\\u{110000}' }, // out of range stays as written
+			{ code: '"\\u"', expected: '\\u' },
+			{ code: '"\\d+"', expected: '\\d+' }, // an unknown escape stays as written, so regexes still work
+			{ code: '"\\x"', expected: '\\x' },
+			{ code: '"\\\\d+"', expected: '\\d+' },
+			{ code: '"C:\\Users\\bob"', expected: 'C:\\Users\\bob' },
+			{ code: '"C:\\temp"', expected: 'C:\temp' }, // a windows path with a \t in it needs its slash doubled
+			{ code: '"C:\\\\temp"', expected: 'C:\\temp' },
+			{ code: 'x := "a\\nb"\nprint(x)', expected: 'a\nb' },
+			{ code: 'StrLen("a\\nb")', expected: 3 },
+			{ code: 'x := "a\\tb"\nprint(Asc(Substr(x, 1, 1)))', expected: '9' },
+			{ code: 'Strepl("a.b.c", "\\.", "-")', expected: 'a-b-c' },
+			{ code: 'Strepl("a.b.c", "\\\\.", "-")', expected: 'a-b-c' },
+			{ code: 'Strepl("a1b22", "\\d+", "#")', expected: 'a#b#' },
+			{ code: 'Occur("a\nb\nc", "\\n")', expected: 2 },
+			{ code: 'x := "a,b\\nc,d"\nprint(Count(StrSplit(x, "\\n")))', expected: '2' },
+			
+			// quotes inside strings, and single-quoted strings
+			{ code: "'say \"hi\"'", expected: 'say "hi"' },
+			{ code: '"it\'s"', expected: "it's" },
+			{ code: "'it\\'s'", expected: "it's" },
+			{ code: "'a\"b'", expected: 'a"b' },
+			{ code: "'abc'", expected: 'abc' },
+			{ code: "''", expected: '' },
+			{ code: '""', expected: '' },
+			{ code: "'\\\\'", expected: '\\' },
+			{ code: "'a\\nb'", expected: 'a\nb' }, // same escapes as double quotes
+			{ code: "'\\u{41}'", expected: 'A' },
+			{ code: 'x := "console.log(\\"it\'s\\")"\nprint(x)', expected: 'console.log("it\'s")' }, // js source with both kinds of quote
+			{ code: "x := 'console.log(\"it\\'s\")'\nprint(x)", expected: 'console.log("it\'s")' },
+			{ code: 'x := "\\"" . "a"\nprint(x)', expected: '"a' }, // a quote at the edge used to get eaten by concat
+			{ code: 'x := "a" . "\\""\nprint(x)', expected: 'a"' },
+			{ code: 'x := "\\"a\\"" . "b"\nprint(x)', expected: '"a"b' },
+			{ code: 'x := "\\"hi\\""\nprint(x)\nprint(StrLen(x))', expected: '"hi"\n4' },
+			{ code: "x := 'a' 'b'\nprint(x)", expected: 'ab' },
+			{ code: "x := 'a' . \"b\" . 'c'\nprint(x)", expected: 'abc' },
+			{ code: "x := 'a'\nprint(x === \"a\")", expected: 'true' }, // the same string either way
+			{ code: "x := 'A'\nprint(x = \"a\")\nprint(x == \"a\")", expected: 'true\nfalse' },
+			{ code: "x := '5'\nprint(x === 5)\nprint(x == 5)", expected: 'false\ntrue' },
+			{ code: "x := 'a'\nx .= 'b'\nprint(x)", expected: 'ab' },
+			{ code: "x := Upper('abc')\nprint(x)", expected: 'ABC' },
+			{ code: 'arr := ["a\\nb", \'c\']\nprint(Json(arr))', expected: '["a\\nb","c"]' },
+			{ code: "o := {'a': 1, \"b\\\"c\": 2}\nprint(Json(Keys(o)))", expected: '["a","b\\"c"]' }, // keys take single quotes and escapes too
+			{ code: "o := {'a': 1}\nprint(o.a)\nprint(o['a'])\nprint(o[\"a\"])", expected: '1\n1\n1' },
+			{ code: 'o := {"k\\ney": 5}\nprint(o["k\\ney"])', expected: '5' },
+			{ code: "f(a := 'd\\n') { return a }\nprint(StrLen(f()))", expected: '2' },
+			{ code: 'r := 1 ? "y\\n" : \'n\'\nprint(StrLen(r))', expected: '2' },
+			
+			// strings that go over lines, and what can sit inside one
+			{ code: 'x := "line1\nline2"\nprint(x)', expected: 'line1\nline2' },
+			{ code: "x := 'line1\nline2'\nprint(x)", expected: 'line1\nline2' },
+			{ code: 'x := "a\r\nb"\nprint(x)', expected: 'a\nb' }, // windows line endings inside a string
+			{ code: 'x := "a\r\nb\r\nc"\nprint(StrLen(x))', expected: '5' },
+			{ code: 'x := "\\r\\n"\nprint(StrLen(x))', expected: '2' }, // an escaped one is kept
+			{ code: 'x := "one\ntwo\nthree"\nprint(Count(StrSplit(x, "\\n")))', expected: '3' },
+			{ code: 'x := "a;b"\nprint(x)', expected: 'a;b' },
+			{ code: "x := 'a;b'\nprint(x)", expected: 'a;b' },
+			{ code: 'x := "; not a comment" ; a comment\nprint(x)', expected: '; not a comment' },
+			{ code: 'x := "{[(}])"\nprint(x)', expected: '{[(}])' },
+			{ code: 'x := "a := 1, b := 2"\nprint(x)', expected: 'a := 1, b := 2' },
+			{ code: 'x := "%name%"\nprint(x)', expected: '%name%' },
+			{ code: 'x := "${x} {x}"\nprint(x)', expected: '${x} {x}' }, // only backticks interpolate
+			{ code: "x := '${x}'\nprint(x)", expected: '${x}' },
+			{ code: 'x := "a" . "b"\nprint(x)', expected: 'ab' },
+			
+			// template strings
+			{ code: '`hi`', expected: 'hi' },
+			{ code: '``', expected: '' },
+			{ code: 'name := "bob"\nx := `hi ${name}`\nprint(x)', expected: 'hi bob' },
+			{ code: 'name := "bob"\nx := `${name}${name}`\nprint(x)', expected: 'bobbob' },
+			{ code: 'x := `${1 + 2}`\nprint(x)', expected: '3' },
+			{ code: 'x := `${ 1 + 2 }`\nprint(x)', expected: '3' }, // spaces inside the braces
+			{ code: 'x := `sum ${Sum([1, 2, 3])} of ${Count([1, 2, 3])}`\nprint(x)', expected: 'sum 6 of 3' },
+			{ code: 'x := 5\nr := `${x > 3 ? "big" : "small"}`\nprint(r)', expected: 'big' },
+			{ code: 'o := {"a": {"b": 7}}\nr := `${o.a.b}`\nprint(r)', expected: '7' },
+			{ code: 'arr := [10, 20]\nr := `${arr[1]}`\nprint(r)', expected: '20' },
+			{ code: 'x := `${"a" . "b"}`\nprint(x)', expected: 'ab' },
+			{ code: 'x := `${Upper(`in${1}`)}`\nprint(x)', expected: 'IN1' },
+			{ code: 'n := "in"\nx := `a ${`b ${n} c`} d`\nprint(x)', expected: 'a b in c d' }, // templates inside templates
+			{ code: 'x := `a${"}"}b`\nprint(x)', expected: 'a}b' }, // a } inside a string inside the expression
+			{ code: 'x := `${ {"a": 1}.a }`\nprint(x)', expected: '1' }, // and an object literal
+			{ code: 'x := `\\${x}`\nprint(x)', expected: '${x}' }, // escaping the brace
+			{ code: 'x := `\\${`\nprint(x)', expected: '${' },
+			{ code: 'x := `cost $5 and $`\nprint(x)', expected: 'cost $5 and $' },
+			{ code: 'x := `$`\nprint(x)', expected: '$' },
+			{ code: 'x := `a\\nb\\t\\`c\\\\`\nprint(x)', expected: 'a\nb\t`c\\' },
+			{ code: 'x := `\\u{41}\\u0042`\nprint(x)', expected: 'AB' },
+			{ code: 'x := `say "hi" it\'s`\nprint(x)', expected: 'say "hi" it\'s' },
+			{ code: 'x := `line1\nline2`\nprint(x)', expected: 'line1\nline2' },
+			{ code: 'x := `a\r\nb`\nprint(x)', expected: 'a\nb' },
+			{ code: 'x := `${null}|${undefined}|${true}|${NaN}|${[1, 2]}|${missing}`\nprint(x)', expected: '||true|NaN|1,2|' },
+			{ code: 'a := []\nr := `${Push(a, 1)}${Push(a, 2)}`\nprint(r)', expected: '11,2' }, // parts run in order
+			{ code: 'x := `a` . `b`\nprint(x)', expected: 'ab' },
+			{ code: 'r := `${5}`\nprint(r === "5")\nprint(r === 5)', expected: 'true\nfalse' }, // always a string
+			{ code: 'f(a := `d${1}`) { return a }\nprint(f())', expected: 'd1' },
+			{ code: 'greet(n) { return `hi ${n}` }\nprint(greet("bob"))', expected: 'hi bob' },
+			{ code: 'arr := [`a${1}`, `b`]\nprint(Json(arr))', expected: '["a1","b"]' },
+			{ code: 'o := {"k": `v${1}`}\nprint(o.k)', expected: 'v1' },
+			{ code: 's := ""\nloop (3) { s := s . `${A_Index}` }\nprint(s)', expected: '123' },
+			
+			// heredocs
+			{ code: 'x := <<END\nabc\nEND\nprint(x)', expected: 'abc' },
+			{ code: 'x := <<END\nEND\nprint(x)', expected: '' },
+			{ code: 'x := <<END\na\n\nb\nEND\nprint(x)', expected: 'a\n\nb' },
+			{ code: 'x := <<END\na\n\nEND\nprint(x . "|")', expected: 'a\n|' }, // a blank line before the end keeps its newline
+			{ code: 'x := <<END\n  indented\n\ttabbed\nEND\nprint(x)', expected: '  indented\n\ttabbed' }, // the body isn't touched
+			{ code: 'x := <<END\nconsole.log("it\'s")\nEND\nprint(x)', expected: 'console.log("it\'s")' }, // both kinds of quote
+			{ code: 'x := <<END\nlet s = \'a\' + "b" + `c${d}`\nEND\nprint(x)', expected: 'let s = \'a\' + "b" + `c${d}`' },
+			{ code: 'x := <<END\na\\nb \\" {x} ${y} `z` ; not a comment\nEND\nprint(x)', expected: 'a\\nb \\" {x} ${y} `z` ; not a comment' }, // no escapes, no interpolation, no comments
+			{ code: 'x := <<END\nENDING\nEND2\nEND_\nEND\nprint(x)', expected: 'ENDING\nEND2\nEND_' }, // only a whole END ends it
+			{ code: 'x := <<END\nabc\n  END\nprint(x)', expected: 'abc' }, // the end can be indented
+			{ code: 'x := <<JS\nx\nJS\nprint(x)', expected: 'x' },
+			{ code: 'x := <<_a1\nx\n_a1\nprint(x)', expected: 'x' },
+			{ code: 'x := <<end\nEND\nend\nprint(x)', expected: 'END' }, // the name is case-sensitive
+			{ code: 'x := <<A\n<<B\nA\nprint(x)', expected: '<<B' }, // a heredoc inside one is just text
+			{ code: 'x := Upper(<<END\nabc\nEND)\nprint(x)', expected: 'ABC' }, // as an argument the call closes on the END line
+			{ code: 'x := <<END\na\nEND\ny := "b"\nprint(x . y)', expected: 'ab' }, // and the script carries on after it
+			{ code: 'x := <<END\r\na\r\nb\r\nEND\r\nprint(x)', expected: 'a\nb' },
+			{ code: 'x := Exec(<<END\nq := 5\nreturn q * 2\nEND)\nprint(x)', expected: '10' },
+			{ code: 'x := Json(<<END\na"b\nEND)\nprint(x)', expected: '"a\\"b"' },
+			{ code: 'x := <<END\nabc\nEND\nprint(StrLen(x))', expected: '3' },
+			{ code: 'x := <<END\n1\n2\nEND\nprint(Count(StrSplit(x, "\\n")))', expected: '2' },
+			{ code: 'r := 1\nif (r) {\n\tx := <<END\nkept\nEND\n\tprint(x)\n}', expected: 'kept' }, // inside a block
+			{ code: 'f() { return <<END\nfrom f\nEND\n}\nprint(f())', expected: 'from f' },
+			{ code: 'x := 1 << 2\nprint(x)', expected: '4' }, // << is still a shift
+			{ code: 'x := 8\ny := x << 1 << 1\nprint(y)', expected: '32' },
 		];
 		// === never matches two separately built arrays/objects, so compare structurally
 		const deepEqual = (a, b) => {
@@ -2937,7 +3169,29 @@ class ASTExecutor {
 			{ code: 'x := nullable', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─VAR nullable\n' }, // not a null
 			{ code: 'x := [null, 0x10, "a"]', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─ARRAY\n      ├─null\n      ├─16\n      └─"a"\n' },
 			{ code: 'x := {"a": null}', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OBJECT\n      └─"a"\n        └─null\n' },
+			{ code: "x := 'a'", expected: "└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─'a'\n" }, // strings and templates in the tree
+			{ code: 'x := "a\\nb"', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─"a\\nb"\n' }, // the escape is worked out when it runs, so the tree shows it as written
+			{ code: 'x := `a`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      └─"a"\n' },
+			{ code: 'x := ``', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n' },
+			{ code: 'x := `hi ${name}!`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      ├─"hi "\n      ├─VAR name\n      └─"!"\n' },
+			{ code: 'x := `${1 + 2}${b}`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      ├─ADD\n      │ ├─1\n      │ └─2\n      └─VAR b\n' },
+			{ code: 'x := `a\\n${"}"}`', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      ├─"a\\n"\n      └─"}"\n' },
+			{ code: 'x := <<END\nabc\nEND', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      └─"abc"\n' }, // a heredoc is a template with just the text
+			{ code: 'x := <<END\nEND', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n' },
+			{ code: "x := {'a': `b`}", expected: "└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OBJECT\n      └─'a'\n        └─TEMPLATE\n          └─\"b\"\n" },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
+		// parse errors, what the parser says when a string never ends
+		await assert([
+			{ code: 'x := "abc', expected: 'Unterminated string' },
+			{ code: "x := 'abc", expected: 'Unterminated string' },
+			{ code: 'x := "abc\\"', expected: 'Unterminated string' }, // the last quote is escaped
+			{ code: 'x := "abc\ndef', expected: 'Unterminated string' },
+			{ code: 'x := `abc', expected: 'Unterminated template string' },
+			{ code: 'x := `abc\\`', expected: 'Unterminated template string' },
+			{ code: 'x := `a ${b', expected: "Expected '}' to close '${'" },
+			{ code: 'x := `a ${} b`', expected: "Expected expression after '${'" },
+			{ code: 'x := "ok"', expected: 'no error' },
+		], async (code) => { try { await this.assert_code(code) } catch (err) { return err.summary } return 'no error' });
 		//     Format(N) {       
 		//     Print(S) {        
 		//     Clear(/) {        
@@ -4040,126 +4294,126 @@ async run(ast) {
 
 		// ---- regex patterns (as strings, for validation) ----
 		this.set("A_Regex", {
-			// Numbers
-			integer: "^[+-]?\\d+$", //[cite: 1]
-			unsignedInteger: "^\\d+$", //[cite: 1]
-			positiveInteger: "^[1-9]\\d*$", //[cite: 1]
-			negativeInteger: "^-[1-9]\\d*$", //[cite: 1]
-			float: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$", //[cite: 1]
-			decimal: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)$", //[cite: 1]
-			scientific: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)[eE][+-]?\\d+$", //[cite: 1]
-			percentage: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)%$", //[cite: 1]
-			thousands: "^[+-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?$", //[cite: 1]
-			europeanNumber: "^[+-]?\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?$", //[cite: 1]
-			currencyUSD: "^\\$?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{2})?$", //[cite: 1]
-			fraction: "^[+-]?\\d+/[1-9]\\d*$", //[cite: 1]
-			binary: "^(?:0b)?[01]+$", //[cite: 1]
-			octal: "^(?:0o)?[0-7]+$", //[cite: 1]
-			hex: "^(?:0x)?[0-9a-fA-F]+$", //[cite: 1]
-			hexBytes: "^(?:[0-9a-fA-F]{2})+$", //[cite: 1]
+			// numbers
+			integer: "^[+-]?\\d+$",
+			unsignedInteger: "^\\d+$",
+			positiveInteger: "^[1-9]\\d*$",
+			negativeInteger: "^-[1-9]\\d*$",
+			float: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$",
+			decimal: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)$",
+			scientific: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)[eE][+-]?\\d+$",
+			percentage: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)%$",
+			thousands: "^[+-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?$",
+			europeanNumber: "^[+-]?\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?$",
+			currencyUSD: "^\\$?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{2})?$",
+			fraction: "^[+-]?\\d+/[1-9]\\d*$",
+			binary: "^(?:0b)?[01]+$",
+			octal: "^(?:0o)?[0-7]+$",
+			hex: "^(?:0x)?[0-9a-fA-F]+$",
+			hexBytes: "^(?:[0-9a-fA-F]{2})+$",
 
-			// Text and Identifiers
-			alpha: "^[A-Za-z]+$", //[cite: 1]
-			alnum: "^[A-Za-z0-9]+$", //[cite: 1]
-			lowercase: "^[a-z]+$", //[cite: 1]
-			uppercase: "^[A-Z]+$", //[cite: 1]
-			titleCase: "^[A-Z][a-z]*(?: [A-Z][a-z]*)*$", //[cite: 1]
-			identifier: "^[A-Za-z_][A-Za-z0-9_]*$", //[cite: 1]
-			jsIdentifier: "^[A-Za-z_$][A-Za-z0-9_$]*$", //[cite: 1]
-			camelCase: "^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$", //[cite: 1]
-			pascalCase: "^[A-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$", //[cite: 1]
-			snakeCase: "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$", //[cite: 1]
-			screamingSnakeCase: "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", //[cite: 1]
-			kebabCase: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", //[cite: 1]
-			slug: "^[a-z0-9]+(?:-[a-z0-9]+)*$", //[cite: 1]
-			username: "^[A-Za-z][A-Za-z0-9_.-]{2,31}$", //[cite: 1]
-			personName: "^[A-Za-z]+(?:[ '-][A-Za-z]+)*$", //[cite: 1]
-			mediumPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$", //[cite: 1]
-			strongPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9\\s]).{8,}$", //[cite: 1]
-			pin4: "^\\d{4}$", //[cite: 1]
-			pin6: "^\\d{6}$", //[cite: 1]
-			boolean: "^(?:true|false)$", //[cite: 1]
-			jsonString: "^\"(?:[^\"\\\\\\x00-\\x1F]|\\\\[\"\\\\/bfnrt]|\\\\u[0-9a-fA-F]{4})*\"$", //[cite: 1]
+			// text and identifiers
+			alpha: "^[A-Za-z]+$",
+			alnum: "^[A-Za-z0-9]+$",
+			lowercase: "^[a-z]+$",
+			uppercase: "^[A-Z]+$",
+			titleCase: "^[A-Z][a-z]*(?: [A-Z][a-z]*)*$",
+			identifier: "^[A-Za-z_][A-Za-z0-9_]*$",
+			jsIdentifier: "^[A-Za-z_$][A-Za-z0-9_$]*$",
+			camelCase: "^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$",
+			pascalCase: "^[A-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$",
+			snakeCase: "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+			screamingSnakeCase: "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+			kebabCase: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+			slug: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+			username: "^[A-Za-z][A-Za-z0-9_.-]{2,31}$",
+			personName: "^[A-Za-z]+(?:[ '-][A-Za-z]+)*$",
+			mediumPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$",
+			strongPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9\\s]).{8,}$",
+			pin4: "^\\d{4}$",
+			pin6: "^\\d{6}$",
+			boolean: "^(?:true|false)$",
+			jsonString: "^\"(?:[^\"\\\\\\x00-\\x1F]|\\\\[\"\\\\/bfnrt]|\\\\u[0-9a-fA-F]{4})*\"$",
 
-			// Network
-			mac: "^[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\\1){4}[0-9A-Fa-f]{2}$", //[cite: 1]
-			macNoSeparator: "^[0-9A-Fa-f]{12}$", //[cite: 1]
-			emailLoose: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", //[cite: 1]
-			httpMethod: "^(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)$", //[cite: 1]
-			httpStatusCode: "^[1-5]\\d\\d$", //[cite: 1]
-			mimeType: "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$", //[cite: 1]
-			queryString: "^\\??[^=&#\\s]+(?:=[^&#\\s]*)?(?:&[^=&#\\s]+(?:=[^&#\\s]*)?)*$", //[cite: 1]
-			twitterHandle: "^@[A-Za-z0-9_]{1,15}$", //[cite: 1]
-			youtubeVideoId: "^[A-Za-z0-9_-]{11}$", //[cite: 1]
+			// network
+			mac: "^[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\\1){4}[0-9A-Fa-f]{2}$",
+			macNoSeparator: "^[0-9A-Fa-f]{12}$",
+			emailLoose: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+			httpMethod: "^(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)$",
+			httpStatusCode: "^[1-5]\\d\\d$",
+			mimeType: "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$",
+			queryString: "^\\??[^=&#\\s]+(?:=[^&#\\s]*)?(?:&[^=&#\\s]+(?:=[^&#\\s]*)?)*$",
+			twitterHandle: "^@[A-Za-z0-9_]{1,15}$",
+			youtubeVideoId: "^[A-Za-z0-9_-]{11}$",
 
-			// Phone and Postal
-			e164: "^\\+[1-9]\\d{1,14}$", //[cite: 1]
-			usPhone: "^(?:\\+?1[ .-]?)?(?:\\([2-9]\\d{2}\\)|[2-9]\\d{2})[ .-]?[2-9]\\d{2}[ .-]?\\d{4}$", //[cite: 1]
-			usZip: "^\\d{5}(?:-\\d{4})?$", //[cite: 1]
-			ukPostcode: "^[A-Za-z]{1,2}\\d[A-Za-z\\d]? ?\\d[A-Za-z]{2}$", //[cite: 1]
-			usState: "^(?:A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])$", //[cite: 1]
-			countryCode2: "^[A-Z]{2}$", //[cite: 1]
-			countryCode3: "^[A-Z]{3}$", //[cite: 1]
+			// phone and postal
+			e164: "^\\+[1-9]\\d{1,14}$",
+			usPhone: "^(?:\\+?1[ .-]?)?(?:\\([2-9]\\d{2}\\)|[2-9]\\d{2})[ .-]?[2-9]\\d{2}[ .-]?\\d{4}$",
+			usZip: "^\\d{5}(?:-\\d{4})?$",
+			ukPostcode: "^[A-Za-z]{1,2}\\d[A-Za-z\\d]? ?\\d[A-Za-z]{2}$",
+			usState: "^(?:A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])$",
+			countryCode2: "^[A-Z]{2}$",
+			countryCode3: "^[A-Z]{3}$",
 
-			// Dates and Times
-			year: "^\\d{4}$", //[cite: 1]
-			month: "^(?:0[1-9]|1[0-2])$", //[cite: 1]
-			dayOfMonth: "^(?:0[1-9]|[12]\\d|3[01])$", //[cite: 1]
-			hour24: "^(?:[01]\\d|2[0-3])$", //[cite: 1]
-			minute: "^[0-5]\\d$", //[cite: 1]
-			time24: "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?$", //[cite: 1]
-			time12: "^(?:0?[1-9]|1[0-2]):[0-5]\\d(?::[0-5]\\d)?\\s?[AaPp][Mm]$", //[cite: 1]
-			isoWeek: "^\\d{4}-W(?:0[1-9]|[1-4]\\d|5[0-3])(?:-[1-7])?$", //[cite: 1]
-			utcOffset: "^[+-](?:0\\d|1[0-4]):[0-5]\\d$", //[cite: 1]
-			unixTimestamp: "^\\d{10}$", //[cite: 1]
-			unixTimestampMs: "^\\d{13}$", //[cite: 1]
+			// dates and times
+			year: "^\\d{4}$",
+			month: "^(?:0[1-9]|1[0-2])$",
+			dayOfMonth: "^(?:0[1-9]|[12]\\d|3[01])$",
+			hour24: "^(?:[01]\\d|2[0-3])$",
+			minute: "^[0-5]\\d$",
+			time24: "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?$",
+			time12: "^(?:0?[1-9]|1[0-2]):[0-5]\\d(?::[0-5]\\d)?\\s?[AaPp][Mm]$",
+			isoWeek: "^\\d{4}-W(?:0[1-9]|[1-4]\\d|5[0-3])(?:-[1-7])?$",
+			utcOffset: "^[+-](?:0\\d|1[0-4]):[0-5]\\d$",
+			unixTimestamp: "^\\d{10}$",
+			unixTimestampMs: "^\\d{13}$",
 
-			// IDs, Hashes, and Versions
-			uuid: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", //[cite: 1]
-			uuidNoDashes: "^[0-9a-fA-F]{32}$", //[cite: 1]
-			ulid: "^[0-7][0-9A-HJKMNP-TV-Z]{25}$", //[cite: 1]
-			nanoid: "^[A-Za-z0-9_-]{21}$", //[cite: 1]
-			objectId: "^[0-9a-fA-F]{24}$", //[cite: 1]
-			md5: "^[a-fA-F0-9]{32}$", //[cite: 1]
-			sha1: "^[a-fA-F0-9]{40}$", //[cite: 1]
-			sha256: "^[a-fA-F0-9]{64}$", //[cite: 1]
-			sha512: "^[a-fA-F0-9]{128}$", //[cite: 1]
-			gitCommit: "^[0-9a-f]{7,40}$", //[cite: 1]
-			versionDotted: "^\\d+(?:\\.\\d+){1,3}$", //[cite: 1]
-			hexColor: "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", //[cite: 1]
-			hexColorAlpha: "^#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})$", //[cite: 1]
+			// ids, hashes and versions
+			uuid: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+			uuidNoDashes: "^[0-9a-fA-F]{32}$",
+			ulid: "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+			nanoid: "^[A-Za-z0-9_-]{21}$",
+			objectId: "^[0-9a-fA-F]{24}$",
+			md5: "^[a-fA-F0-9]{32}$",
+			sha1: "^[a-fA-F0-9]{40}$",
+			sha256: "^[a-fA-F0-9]{64}$",
+			sha512: "^[a-fA-F0-9]{128}$",
+			gitCommit: "^[0-9a-f]{7,40}$",
+			versionDotted: "^\\d+(?:\\.\\d+){1,3}$",
+			hexColor: "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
+			hexColorAlpha: "^#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})$",
 
-			// Money, Banking, Commerce
-			cardNumber: "^\\d{13,19}$", //[cite: 1]
-			visa: "^4\\d{12}(?:\\d{3}){0,2}$", //[cite: 1]
-			mastercard: "^(?:5[1-5]\\d{2}|2(?:2[2-9]\\d|[3-6]\\d\\d|7[01]\\d|720))\\d{12}$", //[cite: 1]
-			amex: "^3[47]\\d{13}$", //[cite: 1]
-			discover: "^6(?:011|5\\d{2}|4[4-9]\\d)\\d{12,15}$", //[cite: 1]
-			cvv: "^\\d{3,4}$", //[cite: 1]
-			cardExpiry: "^(?:0[1-9]|1[0-2])/(?:\\d{2}|\\d{4})$", //[cite: 1]
-			iban: "^[A-Z]{2}\\d{2}[A-Z0-9]{11,30}$", //[cite: 1]
-			usSSN: "^(?!000|666|9\\d\\d)\\d{3}-(?!00)\\d{2}-(?!0000)\\d{4}$", //[cite: 1]
-			isbn13: "^97[89]\\d{10}$", //[cite: 1]
-			ean13: "^\\d{13}$", //[cite: 1]
-			bitcoinAddress: "^(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-z02-9]{11,71})$", //[cite: 1]
-			ethereumAddress: "^0x[a-fA-F0-9]{40}$", //[cite: 1]
+			// money, banking, commerce
+			cardNumber: "^\\d{13,19}$",
+			visa: "^4\\d{12}(?:\\d{3}){0,2}$",
+			mastercard: "^(?:5[1-5]\\d{2}|2(?:2[2-9]\\d|[3-6]\\d\\d|7[01]\\d|720))\\d{12}$",
+			amex: "^3[47]\\d{13}$",
+			discover: "^6(?:011|5\\d{2}|4[4-9]\\d)\\d{12,15}$",
+			cvv: "^\\d{3,4}$",
+			cardExpiry: "^(?:0[1-9]|1[0-2])/(?:\\d{2}|\\d{4})$",
+			iban: "^[A-Z]{2}\\d{2}[A-Z0-9]{11,30}$",
+			usSSN: "^(?!000|666|9\\d\\d)\\d{3}-(?!00)\\d{2}-(?!0000)\\d{4}$",
+			isbn13: "^97[89]\\d{10}$",
+			ean13: "^\\d{13}$",
+			bitcoinAddress: "^(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-z02-9]{11,71})$",
+			ethereumAddress: "^0x[a-fA-F0-9]{40}$",
 
-			// Encodings and Tokens
-			base64: "^(?=.)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$", //[cite: 1]
-			base64Url: "^(?=.)(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$", //[cite: 1]
-			jwt: "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*$", //[cite: 1]
+			// encodings and tokens
+			base64: "^(?=.)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+			base64Url: "^(?=.)(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$",
+			jwt: "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*$",
 
-			// Files, Paths, and Dev
-			unixPermissions: "^[0-7]{3,4}$", //[cite: 1]
-			envVarAssignment: "^[A-Za-z_][A-Za-z0-9_]*=.*$", //[cite: 1]
-			npmPackage: "^(?:@[a-z0-9-*~][a-z0-9-*._~]*/)?[a-z0-9-~][a-z0-9-._~]*$", //[cite: 1]
-			dockerImage: "^(?:[a-z0-9.-]+(?::\\d+)?/)?[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(?:@sha256:[a-f0-9]{64})?$", //[cite: 1]
+			// files, paths and dev
+			unixPermissions: "^[0-7]{3,4}$",
+			envVarAssignment: "^[A-Za-z_][A-Za-z0-9_]*=.*$",
+			npmPackage: "^(?:@[a-z0-9-*~][a-z0-9-*._~]*/)?[a-z0-9-~][a-z0-9-._~]*$",
+			dockerImage: "^(?:[a-z0-9.-]+(?::\\d+)?/)?[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(?:@sha256:[a-f0-9]{64})?$",
 
-			// Unanchored Fragments
-			whitespace: "\\s+", //[cite: 1]
-			word: "\\w+", //[cite: 1]
-			ansi: "\\x1b\\[[0-9;?]*[A-Za-z]", //[cite: 1]
-			lineBreak: "\\r\\n|\\r|\\n" //[cite: 1]
+			// unanchored fragments
+			whitespace: "\\s+",
+			word: "\\w+",
+			ansi: "\\x1b\\[[0-9;?]*[A-Za-z]",
+			lineBreak: "\\r\\n|\\r|\\n"
 		});
 
 		// ---- network and ports ----
@@ -4524,8 +4778,16 @@ async run(ast) {
 	}
 	async literal(ast) { // 25
 		//this.print(`${this.getFunctionName()}`);
-		// strings lose their quotes, everything else keeps its type
-		return typeof ast.value === 'string' ? ast.value.replace(/^"|"$/g, '') : ast.value;
+		// strings lose their quotes and get their escapes worked out, everything else keeps its type
+		return typeof ast.value === 'string' ? unquote(ast.value) : ast.value;
+	}
+	async template(ast) { // 43
+		// in order, so a call in one part is done before the next
+		let out = '';
+		for (const part of ast.parts) {
+			out += typeof part === 'string' ? part : this.text(await this.execute_ast(part));
+		}
+		return out;
 	}
 	// an already resolved value wrapped as a node so it isn't run again (method_call uses this)
 	async value(ast) { // 36
@@ -4554,7 +4816,7 @@ async run(ast) {
 		let properties = ast.items;
 		let obj = {};
 		for (let [key, value] of properties.entries()) {
-			let propName = key.replace(/"/g, "");
+			let propName = unquote(key);
 			obj[propName] = await this.execute_ast(value);
 		}
 		return obj;
@@ -4608,8 +4870,8 @@ async run(ast) {
 	}
 	async concat(ast) { // 16
 		//this.print(`${this.getFunctionName()}`);
-		let left = this.text(await this.execute_ast(ast.left)).replace(/^"|"$/g, '');
-		let right = this.text(await this.execute_ast(ast.right)).replace(/^"|"$/g, '');
+		let left = this.text(await this.execute_ast(ast.left));
+		let right = this.text(await this.execute_ast(ast.right));
 
 		return (left + right)
 	}
