@@ -94,7 +94,7 @@ const WHITESPACE = new RegexToken(/[ \t]+/);
 const NEWLINE = new RegexToken(/\r?\n/);
 var ItemType;
 (function(ItemType) {
-	// Statements
+	// statements
 	ItemType[ItemType["ASSIGNMENT"] = 0] = "ASSIGNMENT";
 	ItemType[ItemType["IF"] = 1] = "IF";
 	ItemType[ItemType["LOOP"] = 2] = "LOOP";
@@ -105,9 +105,9 @@ var ItemType;
 	ItemType[ItemType["RETURN"] = 3] = "RETURN";
 	ItemType[ItemType["FUNCTION_DEFINITION"] = 4] = "FUNCTION_DEFINITION";
 	ItemType[ItemType["STATEMENT_MAX"] = 5] = "STATEMENT_MAX";
-	// Both Statement and Expression
+	// statement and expression
 	ItemType[ItemType["FUNCTION_CALL"] = 6] = "FUNCTION_CALL";
-	// Expressions
+	// expressions
 	ItemType[ItemType["TERNARY"] = 7] = "TERNARY";
 	ItemType[ItemType["OR"] = 8] = "OR";
 	ItemType[ItemType["AND"] = 9] = "AND";
@@ -245,7 +245,7 @@ const BINARY_OP_PRECEDENCE = [
 		type: ItemType.DIV
 	}, ],
 ];
-/** Token that matches when position is at the end of the input. */
+// matches at the end of the input
 class EofToken {
 	scan(haystack, position) {
 		return position >= haystack.length ? '' : null;
@@ -370,7 +370,7 @@ class CoyoteParser extends Parser {
 			.or(() => this.parse_expression_function_call())
 			.or(() => this.parse_expression_base())
 		this.parse_eol();
-		// This is jank but it prevents an infinite loop if a statement doesn't parse
+		// jank, but stops an infinite loop when a statement won't parse
 		if (this.position === start) {
 			throw Object.assign(
 				new Error(),
@@ -378,8 +378,8 @@ class CoyoteParser extends Parser {
 					summary: "Failed to parse statement.",
 					source: "parser",
 					position: this.position,
-					statement: this.print_current_position()[0], // Include only the necessary data
-					loc: this.print_current_position()[1], // Include only the necessary data
+					statement: this.print_current_position()[0],
+					loc: this.print_current_position()[1],
 				}
 			);
 		}
@@ -414,12 +414,7 @@ class CoyoteParser extends Parser {
 				this.not_found()
 			)
 		}
-	// %name% or %(expr)% - dynamic var lookup by name. %name% is the "look
-	// up the value X points at" version: X's own value gets read once (the
-	// normal variable lookup), then read AGAIN using that as the var name -
-	// two lookups total, which is the whole "double deref" of it. %(expr)%
-	// is the same trick but with the target name coming from any expression
-	// instead of a bare variable, so foo/bar/whatever can be built on the fly
+	// %name% or %(expr)% - reads the var, then reads the var named by its value
 	parse_expression_deref() {
 			this.log("parse_expression_deref")
 			const lookahead_parser = this.copy()
@@ -446,8 +441,7 @@ class CoyoteParser extends Parser {
 			this.sync_to(lookahead_parser)
 			return this.found({ type: ItemType.DEREF, target })
 		}
-	// new ClassName(args) - constructs an instance and runs __init if the
-	// class defines one. same param-list parsing as a function call/def
+	// new ClassName(args) - builds an instance and runs __init if there is one
 	parse_expression_new() {
 			this.log("parse_expression_new")
 			const lookahead_parser = this.copy()
@@ -486,31 +480,27 @@ class CoyoteParser extends Parser {
 		this.log('parse_statement_method_call');
 		const lookahead_parser = this.copy();
 
-		// Parse the base object which should be a variable
 		const object = lookahead_parser.scan(VARIABLE);
 		if (object.not_found()) {
 			return this.not_found();
 		}
 
-		// Parse the member access expression (e.g., `push`)
 		const member_access = lookahead_parser.parse_member_access_expression();
 		if (member_access.not_found()) {
 			return this.not_found();
 		}
 
-		// Parse the method call expression
 		const method_call = lookahead_parser.parse_method_call_expression();
 		if (method_call.not_found()) {
 			return this.not_found();
 		}
 
-		// Synchronize the state of the parser
 		this.sync_to(lookahead_parser);
 
 		return this.found({
 			type: ItemType.METHOD_CALL,
 			object: object.get(),
-			method: member_access.get(),  // Using the member access for method name
+			method: member_access.get(),
 			arguments: method_call.get()
 		});
 	}
@@ -518,7 +508,7 @@ class CoyoteParser extends Parser {
 		this.log('parse_statement_assignment');
 		const lookahead_parser = this.copy();
 		const varname = lookahead_parser.scan(VARIABLE);
-		// Consider blocking keywords (if, else, etc) here
+		// todo: block keywords (if, else, etc) here
 		if (varname.not_found()) {
 			return this.not_found();
 		}
@@ -639,7 +629,7 @@ class CoyoteParser extends Parser {
 		this.log('parse_statement_function_definition');
 		const lookahead_parser = this.copy();
 		const funcname = lookahead_parser.scan(VARIABLE);
-		// Consider blocking keywords (if, else, etc) here
+		// todo: block keywords (if, else, etc) here
 		if (funcname.not_found()) {
 			return this.not_found();
 		}
@@ -657,21 +647,18 @@ class CoyoteParser extends Parser {
 			}
 			let default_value = null;
 			lookahead_parser.scan(WHITESPACE);
-			// Check for the optional `:=` default value operator
-			if (lookahead_parser.scan(OPERATOR_ASSIGN).found()) { // Assuming := is defined as OPERATOR_ASSIGN
+			if (lookahead_parser.scan(OPERATOR_ASSIGN).found()) {
 				lookahead_parser.scan(WHITESPACE);
-				default_value = lookahead_parser.parse_expression();  // Assuming parse_expression handles the default value parsing
+				default_value = lookahead_parser.parse_expression();
 				if (default_value.not_found()) {
 					return this.not_found();
 				}
 			}
-			// Store the parameter and its default value
 			params.push({
 				name: param_name.get(),
-				default_value: default_value ? default_value.get() : null  // If no default, store null
+				default_value: default_value ? default_value.get() : null
 			});
 			lookahead_parser.scan(WHITESPACE);
-			// Continue if a comma is found, otherwise stop
 			expect_more_params = lookahead_parser.scan(OPERATOR_COMMA).found();
 		}
 		lookahead_parser.scan(WHITESPACE);
@@ -691,9 +678,7 @@ class CoyoteParser extends Parser {
 			statements: statements.get(),
 		});
 	}
-	// #Name(args) - a top-of-script switch, same idea as AHK's #directives.
-	// picked up on the same pre-scan pass that finds functions/classes and
-	// applied before the script's real statements ever run
+	// #Name(args) - directive, picked up on the pre-scan with functions and classes
 	parse_statement_directive() {
 		this.log('parse_statement_directive');
 		const lookahead_parser = this.copy();
@@ -730,9 +715,7 @@ class CoyoteParser extends Parser {
 			params,
 		});
 	}
-	// class Name { __init(params) {...} func(args) {...} } - a class body is
-	// just a block of function definitions, so parse_block() already does
-	// all the real work here; this just sorts what it hands back by name
+	// class Name { __init() {...} func() {...} } - the body is just function definitions
 	parse_statement_class_definition() {
 		this.log('parse_statement_class_definition');
 		const lookahead_parser = this.copy();
@@ -792,9 +775,7 @@ class CoyoteParser extends Parser {
 		// this.log('parse_expression');
 		this.scan(WHITESPACE);
 		// var := expr showing up mid-expression (function params, array
-		// items, etc) used to just blow up the parser. try it as an
-		// assignment first and fall through to the normal expression
-		// chain if there's no ':=' waiting after the variable
+		// var := expr inside params, array items etc - try it as an assignment first
 		const assign = this.parse_expression_assignment();
 		if (assign.found()) {
 			return assign;
@@ -802,7 +783,7 @@ class CoyoteParser extends Parser {
 		const expr = this.parse_binary_op(0);
 		this.scan(WHITESPACE);
 		//console.log(expr)
-		// cond ? a : b sits below everything else, concat included
+		// cond ? a : b sits below everything else
 		if (expr.found() && this.scan(OPERATOR_TERNARY_IF).found()) {
 			const if_true = this.parse_expression().or_else_throw(`Expected expression after '?'`);
 			this.scan(OPERATOR_TERNARY_ELSE).or_else_throw(`Expected ':' after '?' expression`);
@@ -849,10 +830,10 @@ class CoyoteParser extends Parser {
 	}
 	parse_binary_op(op_index) {
 		const has_ops_left = op_index < BINARY_OP_PRECEDENCE.length;
-		// the bitwise level takes concat as its operand, everything else just the next level down
+		// bitwise takes concat as its operand, everything else the next level down
 		const operand = () => op_index === 7 ? this.parse_operator_concat() : has_ops_left ? this.parse_binary_op(op_index + 1) : this.parse_unary_expression();
 		let left = operand();
-		// loops rather than recursing on the same level so 10 - 3 - 2 groups from the left
+		// loops so 10 - 3 - 2 groups from the left
 		while (has_ops_left && left.found()) {
 			let matched = false;
 			for (const op of BINARY_OP_PRECEDENCE[op_index]) {
@@ -884,8 +865,7 @@ class CoyoteParser extends Parser {
 			const lookahead_parser = this.copy();
 			const concat_op = lookahead_parser.scan(OPERATOR_CONCAT);
 			if (concat_op.found()) {
-				// If op is '.', we must find another expression.
-				// If op is space, it doesn't mean this is concat. It could just be a stray space at the end the expression.
+				// a space on its own isn't necessarily concat, could be trailing whitespace
 				const right = lookahead_parser.parse_operator_concat();
 				if (concat_op.get() === '.') {
 					right.or_else_throw(`Expected expression after '.'`);
@@ -932,14 +912,13 @@ class CoyoteParser extends Parser {
 			});
 		}
 
-		// Delegate to primary literals, member access, and method calls
 		return this.parse_expression_base();
 	}
 	parse_expression_function_call() {
 		this.log('parse_expression_function_call');
 		const lookahead_parser = this.copy();
 		const funcname = lookahead_parser.scan(VARIABLE);
-		// Consider blocking keywords (if, else, etc) here
+		// todo: block keywords (if, else, etc) here
 		if (funcname.not_found()) {
 			return this.not_found();
 		}
@@ -956,7 +935,6 @@ class CoyoteParser extends Parser {
 			}
 			params.push(expr.get());
 			lookahead_parser.scan(WHITESPACE);
-			// Keep going only if we find a comma
 			expect_more_params = lookahead_parser.scan(OPERATOR_COMMA).found();
 		}
 		lookahead_parser.scan(WHITESPACE);
@@ -1000,7 +978,6 @@ class CoyoteParser extends Parser {
 		return this.found(expr);
 	}
 	parse_expression_value() {
-		// '(' expression ')'
 		if (this.scan(OPERATOR_LPAREN).found()) {
 			const expr = this.parse_expression().or_else_throw(`Expected expression after '('`);
 			this.scan(OPERATOR_RPAREN).or_else_throw(`Expected ')' after expression`);
@@ -1047,14 +1024,12 @@ class CoyoteParser extends Parser {
 
 		const items = [];
 
-		// Arrays can break across lines, so skip any whitespace, comments and
-		// newlines sitting between the bracket/comma and the next item.
+		// arrays can span lines, so skip whitespace, comments and newlines before each item
 		const skip_array_trivia = () => {
 			while (this.scan(WHITESPACE).found() || this.scan(LINE_COMMENT).found() || this.scan(NEWLINE).found()) {}
 		};
 		skip_array_trivia();
 
-		// Early return for empty arrays `[]`
 		if (this.scan(OPERATOR_RBRACKET).found()) {
 			return this.found({
 				type: ItemType.ARRAY,
@@ -1064,7 +1039,6 @@ class CoyoteParser extends Parser {
 
 		while (true) {
 			skip_array_trivia();
-			// Delegate all array items (values, expressions, nested arrays) to parse_expression()
 			const value = this.parse_expression();
 			if (value.not_found()) {
 				throw new Error(`Expected value or expression in array`);
@@ -1073,7 +1047,6 @@ class CoyoteParser extends Parser {
 			items.push(value.get());
 			skip_array_trivia();
 
-			// Continue loop only if a comma separates elements
 			if (!this.scan(OPERATOR_COMMA).found()) {
 				break;
 			}
@@ -1140,7 +1113,6 @@ class CoyoteParser extends Parser {
     }
 	parse_member_access_expression() {
 		this.log("parse_member_access_expression");
-		// `x.foo`
 		var lookahead_parser = this.copy();
 		if (lookahead_parser.scan(OPERATOR_DOT).found()) {
 			this.sync_to(lookahead_parser);
@@ -1163,7 +1135,6 @@ class CoyoteParser extends Parser {
 				//console.log(expr.get())
 				params.push(expr.get());
 				this.scan(WHITESPACE);
-				// Keep going only if we find a comma
 				keep_going = this.scan(OPERATOR_COMMA).found();
 			}
 			this.scan(WHITESPACE);
@@ -1187,7 +1158,6 @@ class CoyoteParser extends Parser {
 			}
 			params.push(expr.get());
 			this.scan(WHITESPACE);
-			// Keep going only if we find a comma
 			keep_going = this.scan(OPERATOR_COMMA).found();
 		}
 		this.scan(WHITESPACE);
@@ -1197,9 +1167,7 @@ class CoyoteParser extends Parser {
 	parse_eol() {
 		this.scan(WHITESPACE);
 		this.scan(LINE_COMMENT);
-		// comma-separated statements on one line: var := 5, var2 := 10, var3 := 30
-		// reuses the same OPERATOR_COMMA token every other comma-separated
-		// list (params, arrays, objects) already scans - no new token added
+		// comma separated statements on one line: var := 5, var2 := 10
 		if (this.scan(OPERATOR_COMMA).found()) {
 			this.scan(WHITESPACE);
 			this.scan(LINE_COMMENT);
@@ -1335,12 +1303,12 @@ function convert_statement(s) {
 			}, {
 				name: chalk.gray('params'),
 				children: s.params.map(p => ({
-					name: p.name,  // Just the name here
+					name: p.name,
 					children: p.default_value !== null ? 
 						[{
 							name: chalk.gray('default_value'),
-							children: [convert_expression(p.default_value)]  // Directly use the converted expression
-						}] : []  // No child if no default value
+							children: [convert_expression(p.default_value)]
+						}] : []
 				})),
 			}, {
 				name: chalk.gray('statements'),
@@ -1459,8 +1427,7 @@ function convert_expression(e) {
 		};
 	}
 	if (e.type === ItemType.ASSIGNMENT) {
-		// assignments can live inline now (buf := SubStr(..., pos := ...))
-		// so the tree needs to be able to draw one same as convert_statement does
+		// inline assignments (buf := SubStr(..., pos := ...)) need drawing too
 		return {
 			name: chalk.cyanBright(ItemType[e.type]),
 			children: [{
@@ -1556,18 +1523,14 @@ class CoyoteVar {
 		this.ast = ast;
 		this.solved = null;
 	}
-	// a var is born from a raw js value, or from another var. either way the
-	// value gets parked inside a VALUE node so it sits in the tree exactly
-	// like anything the parser would have handed us
+	// a var starts from a raw js value or another var, held in a VALUE node
 	static from(owner, name, value) {
 		if (value instanceof CoyoteVar) {
 			return new CoyoteVar(owner, name, value.ast);
 		}
 		return new CoyoteVar(owner, name, { type: ItemType.VALUE, value: value });
 	}
-	// chaining runs nothing. it grows the tree. the var IS the pending line
-	// of code and solve() is what finally dumps it out in whatever format the
-	// tail of the chain asked for
+	// chaining just grows the tree, solve() runs it in whatever format the chain ended with
 	stack(func, params) {
 		const nodes = (params || []).map(p => CoyoteVar.from(this.owner, this.name, p).ast);
 		return new CoyoteVar(this.owner, this.name, {
@@ -1584,8 +1547,7 @@ class CoyoteVar {
 		this.solved = await this.owner.execute_ast(this.ast);
 		return this.solved;
 	}
-	// being thenable means `await x.tohex().upper()` just works, and any
-	// async path that returns a var unwraps it to the value on its own
+	// thenable, so await x.tohex().upper() works
 	then(good, bad) {
 		return this.solve().then(good, bad);
 	}
@@ -1609,9 +1571,7 @@ class CoyoteVar {
 	toString() {
 		return String(this.raw());
 	}
-	// every INTERNAL_ the executor owns gets bolted on as a lowercase method,
-	// so x.tohex().upper().print() in js builds the identical tree the parser
-	// builds for x.tohex().upper().print() in coyote. same road, two doors
+	// every INTERNAL_ gets a lowercase method, so x.tohex().upper() in js builds the same tree as in coyote
 	static bind(proto) {
 		for (const key of Object.getOwnPropertyNames(proto)) {
 			if (!key.startsWith('INTERNAL_')) {
@@ -1650,19 +1610,15 @@ class ASTExecutor {
                 map[key.toLowerCase()] = key;
                 return map;
             }, {});
-		// a spawned scope is the same class with a parent bolted on - no
-		// asserts, no banner, it just inherits the tables and gets on with it
+		// spawned scopes just inherit the parent's tables, no asserts or banner
 		if (parent) {
 			return;
 		}
 		CoyoteVar.bind(ASTExecutor.prototype);
-		// the asserts read A_pi, so it has to exist before they start rather
-		// than relying on run() getting there first
+		// asserts read A_pi, so it has to exist first
 		this.set("A_pi", 3.141592653589793238462643383279502288419716939937);
 		console.log("Verifying asserts")
-		// kept so the script can be held back until they've finished - they
-		// swap console.log and share the root scope, so a script running at
-		// the same time can steal their output or overwrite their variables
+		// kept so the script can wait for the asserts - they swap console.log and share the root scope
 		this.verified = this.verifyInternalFunctions()
 		console.log("AST Executor Initialised.")
 		console.log("Script Start.")
@@ -1673,9 +1629,7 @@ class ASTExecutor {
 		const r = parser.parse();
 		return r
 	}
-	// a scope for an assertion. it gets its own function and class tables
-	// (spawn() shares them by reference) so whatever a snippet defines is
-	// gone with it instead of piling up in the tables the script sees
+	// own function and class tables per assertion, so nothing they define leaks out
 	sandbox() {
 		const scope = this.spawn()
 		scope.functions = { ...this.functions }
@@ -1683,29 +1637,16 @@ class ASTExecutor {
 		return scope
 	}
 	async assert_code(ast) {
-		// asserts run in their own scope. they fire off unawaited from the
-		// constructor so they'd otherwise be writing vars and flags into the
-		// same scope the script is busy using
+		// asserts get their own scope
 		const statements = (await this.make_ast(ast))['statements']
 		if (statements.length === 1) {
 			return (await this.sandbox().execute_ast(statements[0]))
 		}
-		// multi-line assertions: run every statement in one shared scope so
-		// earlier assignments are visible further down (var := 123 \n print(var)),
-		// and capture print() output so it can be asserted on directly
+		// multi-line: one shared scope so later lines see earlier ones, print() output is captured
 		const scope = this.sandbox()
-		// settings (things like #ArrayStartIndex) are shared-by-reference
-		// from spawn(), same as functions/classes - but unlike those, a
-		// directive is meant to be a per-script opt-in, so it gets its own
-		// copy here rather than leaking whatever one assertion sets into
-		// every assertion that runs after it. __defaultSettings (frozen
-		// once, synchronously, before any of this could interleave with a
-		// real script's own run()) is used when present so a directive in
-		// an EARLIER assertion can't corrupt a LATER one either, even
-		// though this whole self-test runs unawaited from the constructor
+		// settings are shared by reference, so each assertion gets its own copy of the defaults
 		scope.settings = { ...(this.__defaultSettings || this.settings) }
-		// same pre-scan run() does for a real script, so a function or class
-		// defined earlier in the snippet can be used later in the same snippet
+		// same pre-scan run() does
 		statements.forEach(statement => {
 			if (statement.type === 4) {
 				scope.functions[statement.name] = statement
@@ -1731,16 +1672,9 @@ class ASTExecutor {
 		return printed.length ? printed.join('\n') : result[result.length - 1]
 	}
 	async verifyInternalFunctions() {
-		// snapshotted synchronously, before this function - or run(), which
-		// the CLI calls right after construction - ever yields to the event
-		// loop. the asserts below fire off unawaited from the constructor,
-		// so without freezing a copy here, a real script's own #directive
-		// (via run(), interleaving on the same shared settings object)
-		// could reach back and corrupt whichever assert hasn't run yet -
-		// same class of race A_pi had before it got moved into the
-		// constructor ahead of these
+		// snapshot of the default settings for the assertions
 		this.__defaultSettings = { ...this.settings };
-		//UNIT TESTS
+		// unit tests
 		const assertions = [
 			{ code: 'pcChange(100, 150)', expected: 50 },
 			{ code: 'pcChange(200, 100)', expected: -50 },
@@ -1787,7 +1721,7 @@ class ASTExecutor {
 			{ code: 'Sin(a_pi / 2)', expected: 1 },
 			{ code: 'Sin(90, "D")', expected: 1 },
 			{ code: 'Cos(3.14159)', expected: -0.9999999999964793 },
-			{ code: 'Cos(a_pi)', expected: -1 }, // was -0.9899924966004454, which only "passed" because Cos used to floor a_pi down to 3 before taking the cosine
+			{ code: 'Cos(a_pi)', expected: -1 },
 			{ code: 'Ceil(123.456)', expected: 124 },
 			{ code: 'Substr("Hello", 1, 3)', expected: 'ell' },
 			{ code: 'Asc("A")', expected: 65 },
@@ -1866,7 +1800,7 @@ class ASTExecutor {
 			{ code: 'isNum("")', expected: 1 },
 			{ code: 'isNum("0")', expected: 1 },
 			{ code: 'isNum("-5")', expected: 1 },
-			{ code: 'isNum("5.5")', expected: 1 }, // isNum() now means "is a number at all" - use isInt() to check for whole numbers specifically
+			{ code: 'isNum("5.5")', expected: 1 }, // isNum is any number, isInt is for whole numbers
 			{ code: 'isNum(0)', expected: 1 },
 			{ code: 'isNum(-5)', expected: 1 },
 			{ code: 'isNum("abc")', expected: 0 },
@@ -1888,7 +1822,7 @@ class ASTExecutor {
 			{ code: 'isArray("[]")', expected: 1 },
 			{ code: 'isArray("")', expected: 0 },
 			{ code: 'isArray({"a":"1"})', expected: 0 },
-			{ code: 'isObject("{}")', expected: 0 }, // gotcha: unlike isArray(), isObject() never parses a string - only real object literals count
+			{ code: 'isObject("{}")', expected: 0 }, // isObject never parses strings
 			{ code: 'isObject("")', expected: 0 },
 			{ code: 'isObject(123)', expected: 0 },
 			{ code: 'isODD(0)', expected: 0 },
@@ -1947,7 +1881,7 @@ class ASTExecutor {
 			{ code: 'Substr("Hello", 0, 0)', expected: "" },
 			{ code: 'Substr("Hello", 10, 5)', expected: "" },
 			{ code: 'Substr("Hello", 2)', expected: "llo" },
-			{ code: 'Substr("48", 1)', expected: "8" }, // all-digit string - Core() used to coerce this straight to a number and drop .substring
+			{ code: 'Substr("48", 1)', expected: "8" }, // all-digit string stays a string
 			{ code: 'Substr("48", 1, 1)', expected: "8" },
 			{ code: 'Substr("12345", 0, 3)', expected: "123" },
 			{ code: 'Substr("007", 1)', expected: "07" },
@@ -1965,7 +1899,7 @@ class ASTExecutor {
 			{ code: 'Strepl("aaa", "a", "b")', expected: "bbb" },
 			{ code: 'Strepl("Hello", "l", "L")', expected: "HeLLo" },
 			{ code: 'Strepl("no match", "zzz", "x")', expected: "no match" },
-			{ code: 'Strepl("abc", ".", "-")', expected: "---" }, // gotcha: find is a raw RegExp source, "." matches ANY char, not a literal dot
+			{ code: 'Strepl("abc", ".", "-")', expected: "---" }, // find is a regex, "." matches anything
 			{ code: 'Upper("MiXeD")', expected: "MIXED" },
 			{ code: 'Lower("MiXeD")', expected: "mixed" },
 			{ code: 'Uppercase("MiXeD case 123")', expected: "MIXED CASE 123" },
@@ -1987,15 +1921,15 @@ class ASTExecutor {
 			{ code: 'StrMid("abcde")', expected: 3 },
 			{ code: 'Occur("aaaa", "a")', expected: 4 },
 			{ code: 'Occur("Hello", "L")', expected: 2 },
-			{ code: 'Occur("Hello", "L", 2)', expected: 2 }, // gotcha: the 3rd "case-sensitive" arg arrives as a string, N===2 never matches, so this stays case-insensitive
+			{ code: 'Occur("Hello", "L", 2)', expected: 2 }, // case arg arrives as a string, so it's ignored
 			{ code: 'Occur("abcabcabc", "abc")', expected: 3 },
 			{ code: 'Occur("no match", "zzz")', expected: 0 },
 			{ code: 'LastOcc("abcabc", "a")', expected: 4 },
-			{ code: 'LastOcc("Hello", "L", 2)', expected: 4 }, // gotcha: same N===2 issue as Occur() - 3rd arg is effectively ignored
+			{ code: 'LastOcc("Hello", "L", 2)', expected: 4 }, // same as Occur
 			{ code: 'LastOcc("no match", "zzz")', expected: 0 },
 			{ code: 'Pcof(25, 200)', expected: 12.5 },
 			{ code: 'Pcof(0, 100)', expected: 0 },
-			{ code: 'Pcof(50, 0)', expected: Infinity }, // gotcha: the "whole === 0" guard never fires (whole arrives as a string), so this returns Infinity instead of the error string
+			{ code: 'Pcof(50, 0)', expected: Infinity }, // whole arrives as a string, so the 0 guard never fires
 			{ code: 'Pct(200, 25)', expected: 50 },
 			{ code: 'Pct(50, 0)', expected: 0 },
 			{ code: 'Pct(0, 50)', expected: 0 },
@@ -2108,9 +2042,9 @@ class ASTExecutor {
 			{ code: 'Repl("aaa", "a", "b")', expected: "baa" },
 			{ code: 'StrSplit("a,b,c", ",")', expected: ["a", "b", "c"] },
 			{ code: 'StrSplit("a-b-c", "-")', expected: ["a", "b", "c"] },
-			{ code: 'Justify("Hi", 1, 5)', expected: "Hi   " }, // was "Hi" (unpadded) - only "passed" because the type-mismatched switch was a no-op
-			{ code: 'Justify("Hi", 3, 5)', expected: "   Hi" }, // was "Hi", same reason
-			{ code: 'Justify("Hi", 2, 6)', expected: "  Hi  " }, // was "Hi", same reason
+			{ code: 'Justify("Hi", 1, 5)', expected: "Hi   " },
+			{ code: 'Justify("Hi", 3, 5)', expected: "   Hi" },
+			{ code: 'Justify("Hi", 2, 6)', expected: "  Hi  " },
 			{ code: 'StrClean("  a   b  ", 1+0)', expected: "a b" },
 			{ code: 'StrClean("  a   b  ", 2+0)', expected: "a b" },
 			{ code: 'StrClean("  a   b  ", 3+0)', expected: "ab" },
@@ -2118,19 +2052,19 @@ class ASTExecutor {
 			{ code: 'Exec("return 6 * 9")', expected: 54 },
 			{ code: 'Contains("hello world", "world")', expected: 1 },
 			{ code: 'StartsWith("HELLO", "HE")', expected: 1 },
-			{ code: 'Tan(3.14159 / 4)', expected: 0.9999986732059836 }, // was `expected: 1` - close to but not exactly 1, since 3.14159/4 isn't precisely pi/4
-			{ code: 'CoTan(30)', expected: 1.7320508075688774 }, // was `CoTan(3.14159 / 4)` expected 1 - Cotan takes degrees only (see Cotan(45) above), so that call was feeding it a radian value by mistake
-			{ code: 'isNum(Rand(100))', expected: 1 }, // Rand is non-deterministic, so just check it returns a number
-			{ code: 'isNum(Dice(6))', expected: 1 }, // same - Dice is non-deterministic
+			{ code: 'Tan(3.14159 / 4)', expected: 0.9999986732059836 },
+			{ code: 'CoTan(30)', expected: 1.7320508075688774 }, // Cotan takes degrees
+			{ code: 'isNum(Rand(100))', expected: 1 }, // random, just check it's a number
+			{ code: 'isNum(Dice(6))', expected: 1 }, // same
 			{ code: 'Rem("Hello", "e")', expected: [ { match: 'e', pos: 1 } ] },
-			{ code: 'Repl("Hello", "l", "x")', expected: 'Hexlo' }, // was `expected: 'Hexxo'` - Repl only replaces the first match (see Repl("Hello","l","L") above)
-			{ code: 'Repl("Hello", "l", "x", 1)', expected: 'Hexxo' }, // the 4th param (Recursive) is what actually gets you the all-matches behavior
+			{ code: 'Repl("Hello", "l", "x")', expected: 'Hexlo' }, // only the first match
+			{ code: 'Repl("Hello", "l", "x", 1)', expected: 'Hexxo' }, // 4th param replaces all
 			{ code: 'Repl("aaa", "a", "b", 1)', expected: 'bbb' },
-			{ code: 'Grep("e", "Hello")', expected: ["Hello"] }, // was `Grep("Hello", "e")` expected 1 - args were the wrong way round (Grep(pattern, text)) and 1 isn't a possible return value (Grep returns matching lines)
-			{ code: 'StrSplit("Hello,World", ",")', expected: ["Hello", "World"] }, // was `expected: true`, which an array could never equal
-			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // was `Justify("Hello", "left", 10)` - the justify type is numeric (1/2/3), not the string "left"
-			{ code: 'StrClean("  Hello  ", 1+0)', expected: 'Hello' }, // was missing its required cleaning-level argument
-			{ code: 'var := 123\nprint(var)', expected: '123' }, // multi-line: assignment in one statement, read back and printed in the next
+			{ code: 'Grep("e", "Hello")', expected: ["Hello"] },
+			{ code: 'StrSplit("Hello,World", ",")', expected: ["Hello", "World"] },
+			{ code: 'Justify("Hello", 1, 10)', expected: 'Hello     ' }, // justify type is 1/2/3
+			{ code: 'StrClean("  Hello  ", 1+0)', expected: 'Hello' },
+			{ code: 'var := 123\nprint(var)', expected: '123' },
 
 			// operators
 			{ code: 'x := 1 + 2\nprint(x)', expected: '3' },
@@ -2148,7 +2082,7 @@ class ASTExecutor {
 			{ code: 'x := 5 <= 4\nprint(x)', expected: 'false' },
 			{ code: 'x := "abc" == "abc"\nprint(x)', expected: 'true' },
 			{ code: 'x := "abc" == "abd"\nprint(x)', expected: 'false' },
-			{ code: 'x := 2 & 3 | 4\nprint(x)', expected: '6' }, // was 2, only because same-level operators used to group from the right: 2 & (3 | 4). & binds tighter than |, so (2 & 3) | 4
+			{ code: 'x := 2 & 3 | 4\nprint(x)', expected: '6' }, // & binds tighter than |
 			{ code: 'x := "Hello" . " " . "World"\nprint(x)', expected: 'Hello World' },
 			{ code: 'x := "a" "b" "c" "d"\nprint(x)', expected: 'abcd' },
 			{ code: 'x := "a" . 5\nprint(x)', expected: 'a5' },
@@ -2237,14 +2171,14 @@ class ASTExecutor {
 			{ code: 'f() { loop (3) { return "first" }\nreturn "second" }\nprint(f())', expected: 'first' }, // unconditional return in a loop
 			{ code: 'f() { loop (3) { if (A_Index == 2) { continue }\nif (A_Index == 3) { return "three" } }\nreturn "none" }\nn := 0\nloop (2) { n++\nx := f() }\nprint(n . x)', expected: '2three' }, // a return in a function's loop doesn't end the caller's loop
 			
-			// Exec borrows the scope, so a stray break in the string shouldn't latch onto it
+			// Exec hands the flags back as it found them
 			{ code: 'n := 0\nloop (3) { Exec("break")\nn++ }\nprint(n)', expected: '3' }, // a break in an Exec string is just spent inside it
 			{ code: 'Exec("break")\nprint("after")', expected: 'after' }, // even at the top level of the script
 			{ code: 'Exec("continue")\nprint("after")', expected: 'after' }, // same for continue
 			{ code: 'Exec("loop (5) { if (A_Index == 3) { break } }")\nprint("after")', expected: 'after' }, // a whole loop inside an Exec string
 			{ code: 'n := 0\nloop (3) { Exec("loop (5) { if (A_Index == 2) { continue } }")\nn++ }\nprint(n)', expected: '3' }, // and inside a loop
 			
-			// instances are persistent scopes - a stray break/continue mustn't stick to one
+			// instances keep their scope, so a stray break/continue mustn't stick
 			{ code: 'class T { stray() { break }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nt.stray()\nprint(t.val())', expected: '3' }, // stray break in a method
 			{ code: 'class T { stray() { continue }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nt.stray()\nprint(t.val())', expected: '3' }, // stray continue in a method
 			{ code: 'class T { __init() { break\nx := 5 }\nval() { a := 1\nb := 2\nreturn a + b } }\nt := new T()\nprint(t.val())', expected: '3' }, // stray break in __init
@@ -2253,13 +2187,13 @@ class ASTExecutor {
 			{ code: 'class T { find(x) { loop (5) { if (A_Index == x) { return "hit" } }\nreturn "miss" } }\nt := new T()\nprint(t.find(2) . t.find(9))', expected: 'hitmiss' }, // return from a loop inside a method
 			{ code: 'class T { stray() { break } }\nt := new T()\nn := 0\nloop (3) { t.stray()\nn++ }\nprint(n)', expected: '3' }, // a stray break in a method can't reach the caller's loop
 			
-			// bare return (no value) used to crash the executor
+			// bare return used to crash
 			{ code: 'f() { return\nx := 1 }\nf()\nprint("ok")', expected: 'ok' }, // bare return at the top of a function
 			{ code: 'f() { loop (3) { return } }\nf()\nprint("ok")', expected: 'ok' }, // bare return inside a loop
 			{ code: 'f() { n := 0\nloop (5) { n++\nif (n == 3) { return } }\nreturn "no" }\nprint(f() == "no")', expected: 'false' }, // bare return in nested if in a loop still stops the function
 			{ code: 'f() { return }\nprint(f() . "|")', expected: '0|' }, // and hands back the same nothing an empty function does
 			
-			// loops as they already were, just never covered
+			// loops, previously untested
 			{ code: 'loop ([10, 20]) { print(A_Index . ":" . A_Key . ":" . A_Val) }\nprint("end")', expected: '1:0:10\n2:1:20\nend' }, // array loop sets A_Index, A_Key and A_Val
 			{ code: 'n := 0\nloop ([]) { n++ }\nprint(n)', expected: '0' }, // empty array
 			{ code: 'n := 0\nloop ("3") { n++ }\nprint(n)', expected: '3' }, // a numeric string counts
@@ -2268,7 +2202,7 @@ class ASTExecutor {
 			{ code: 's := ""\nloop (2) { loop (2) { s := s . A_Index } }\nprint(s)', expected: '1212' }, // A_Index restarts for the inner loop and the outer one picks itself back up
 			{ code: 'n := 0\nloop (5) { n++\nif (n == 2) { break } else { continue } }\nprint(n)', expected: '2' }, // break and continue either side of one if/else
 			
-			// same-level operators group from the left (they used to group from the right)
+			// same level groups from the left
 			{ code: 'r := 10 - 3 - 2\nprint(r)', expected: '5' },
 			{ code: 'r := 20 / 5 / 2\nprint(r)', expected: '2' },
 			{ code: 'r := 1 + 2 - 3 + 4\nprint(r)', expected: '4' },
@@ -2306,7 +2240,7 @@ class ASTExecutor {
 			{ code: 'r := 1 . 2 = 12\nprint(r)', expected: 'true' },
 			{ code: 'r := "a" . "b" ? "yes" : "no"\nprint(r)', expected: 'yes' }, // and the ternary is below concat
 			
-			// && and || (they were tokens with no parser behind them, and & / | were eating the first half)
+			// && and ||
 			{ code: 'r := 6 & 3\nprint(r)', expected: '2' }, // & alone is still bitwise
 			{ code: 'r := 6 | 1\nprint(r)', expected: '7' }, // | alone is still bitwise
 			{ code: 'r := 6 && 3\nprint(r)', expected: '3' },
@@ -2407,7 +2341,7 @@ class ASTExecutor {
 			{ code: 'if ("1" === 1) { print("y") } else { print("n") }\nif ("1" == 1) { print("y") } else { print("n") }', expected: 'n\ny' }, // in an if condition
 			{ code: 'x := 5\nif (x === 5) { print("y") } else { print("n") }\nif (x !== 5) { print("y") } else { print("n") }', expected: 'y\nn' },
 			
-			// everything that shares a first character with the new operators still works
+			// operators sharing a first character still work
 			{ code: 'r := 1 <= 1\nprint(r)', expected: 'true' },
 			{ code: 'r := 2 >= 3\nprint(r)', expected: 'false' },
 			{ code: 'r := 1 < 2\nprint(r)', expected: 'true' },
@@ -2463,9 +2397,9 @@ class ASTExecutor {
 			{ code: 'Sort(Unique([3,1,2,1,3]))', expected: ["1", "2", "3"] },
 			{ code: 'nums := [5,3,8,1,9]\nprint(Max(nums) - Min(nums))', expected: '8' },
 
-			// values that couldn't be checked with a fixed expected result before multi-line + print existed
+			// values with no fixed expected result
 			{ code: 'isNum(Ticks())', expected: 1 }, // Ticks is a live counter, so just check it's a number
-			{ code: 'isNum(Now())', expected: 1 }, // Now is the current timestamp, so just check it's a number
+			{ code: 'isNum(Now())', expected: 1 }, // just check it's a number
 			{ code: 'Date(0)', expected: '1970-01-01T00:00:00.000Z' },
 			{ code: 'Env("DEFINITELY_NOT_A_REAL_ENV_VAR_XYZ123")', expected: '' },
 			{ code: 'Sleep(0)', expected: true },
@@ -2478,18 +2412,18 @@ class ASTExecutor {
 			{ code: 'x := 1, y := 2\nprint(y)', expected: '2' },
 			{ code: 'x := 1,\ny := 2\nprint(x + y)', expected: '3' }, // trailing comma followed by a real newline
 			{ code: 'x := 1 , y := 2\nprint(x+y)', expected: '3' }, // whitespace around the comma
-			{ code: 'x := 1, y := 2, z := 3\nif (x == 1) { print("yes") }\nprint(y + z)', expected: 'yes\n5' }, // comma-chain followed by unrelated statements still parses fine
+			{ code: 'x := 1, y := 2, z := 3\nif (x == 1) { print("yes") }\nprint(y + z)', expected: 'yes\n5' }, // still parses
 			{ code: 'x := 0\nloop (3) { x := x + 1, print(x) }', expected: '1\n2\n3' }, // comma-chain works inside a block, not just top-level
-			// comma still means what it always meant everywhere else - params, arrays, objects, defaults
+			// commas still work in params, arrays, objects, defaults
 			{ code: 'add(a, b) { return a + b }\nprint(add(3, 4))', expected: '7' },
 			{ code: 'arr := [1, 2, 3]\nprint(Sum(arr))', expected: '6' },
 			{ code: 'obj := {"a": "1", "b": "2"}\nprint(obj.a . obj.b)', expected: '12' },
 			{ code: 'greet(name := "World") { return "Hello " . name }\nprint(greet())', expected: 'Hello World' },
 
-			// Mod / Sign / Clamp / RandRange - there's no % operator in the language at all, and no clamping/sign helpers either
+			// Mod / Sign / Clamp / RandRange
 			{ code: 'Mod(7, 3)', expected: 1 },
 			{ code: 'Mod(10, 5)', expected: 0 },
-			{ code: 'Mod(-7, 3)', expected: -1 }, // JS % semantics - sign follows the dividend, not a "true" always-positive mod
+			{ code: 'Mod(-7, 3)', expected: -1 }, // sign follows the dividend
 			{ code: 'Sign(-5)', expected: -1 },
 			{ code: 'Sign(5)', expected: 1 },
 			{ code: 'Sign(0)', expected: 0 },
@@ -2497,14 +2431,14 @@ class ASTExecutor {
 			{ code: 'Clamp(-5, 0, 10)', expected: 0 },
 			{ code: 'Clamp(5, 0, 10)', expected: 5 },
 			{ code: 'Clamp(5.5, 0, 10)', expected: 5.5 },
-			// RandRange is non-deterministic by nature, so this checks the result lands in range rather than pinning an exact value
+			// random, so check the range
 			{ code: 'x := RandRange(1, 10)\nresult := 0\nif (x >= 1) { if (x <= 10) { result := 1 } }\nprint(result)', expected: '1' },
 
 			// array utilities: IndexOf / Pop / Shift / Unshift / Concat / First / Last / Shuffle
 			{ code: 'IndexOf([10,20,30], 20)', expected: 1 },
 			{ code: 'IndexOf([10,20,30], 99)', expected: -1 },
 			{ code: 'IndexOf(["a","b","c"], "b")', expected: 1 },
-			{ code: 'arr := [1,2,3]\nprint(Pop(arr))', expected: '3' }, // Pop returns the removed element (Push returns the array instead)
+			{ code: 'arr := [1,2,3]\nprint(Pop(arr))', expected: '3' }, // Pop returns the removed element
 			{ code: 'arr := [1,2,3]\nPop(arr)\nprint(arr)', expected: '1,2' }, // and it mutates the array in place, same as Push
 			{ code: 'arr := [1,2,3]\nprint(Shift(arr))', expected: '1' },
 			{ code: 'arr := [1,2,3]\nShift(arr)\nprint(arr)', expected: '2,3' },
@@ -2512,15 +2446,15 @@ class ASTExecutor {
 			{ code: 'Concat([1,2],[3,4])', expected: ["1", "2", "3", "4"] },
 			{ code: 'First([1,2,3])', expected: '1' },
 			{ code: 'Last([1,2,3])', expected: '3' },
-			// Shuffle is non-deterministic, so these check the multiset is preserved rather than pinning an exact order
+			// random, so check the contents, not the order
 			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Count(a))', expected: '5' },
 			{ code: 'a := Shuffle([1,2,3,4,5])\nprint(Sum(a))', expected: '15' },
 
 			// string utilities: Left / Right / Capitalize
 			{ code: 'Left("Hello World", 5)', expected: 'Hello' },
 			{ code: 'Right("Hello World", 5)', expected: 'World' },
-			{ code: 'Right("Hi", 10)', expected: 'Hi' }, // asking for more than the string has just returns the whole thing
-			{ code: 'Right("Hello", 0)', expected: '' }, // 0 has to be special-cased - slice(-0) is the same as slice(0), which would return the whole string
+			{ code: 'Right("Hi", 10)', expected: 'Hi' }, // returns the whole thing
+			{ code: 'Right("Hello", 0)', expected: '' }, // 0 is special-cased, slice(-0) is slice(0)
 			{ code: 'Capitalize("hELLO")', expected: 'Hello' },
 			{ code: 'Capitalize("")', expected: '' },
 
@@ -2536,45 +2470,34 @@ class ASTExecutor {
 			{ code: 'IsEmpty("x")', expected: 0 },
 			{ code: 'IsEmpty([])', expected: 1 },
 			{ code: 'IsEmpty([1])', expected: 0 },
-			{ code: 'IsEmpty({"a":"1"})', expected: 0 }, // can't test the true empty-object case - {} itself doesn't parse in this language
-			{ code: 'b := (c := 10) + 1\nprint(b)\nprint(c)', expected: '11\n10' }, // assignment as an expression - the outer read gets the value, and the inline var sticks around too
+			{ code: 'IsEmpty({"a":"1"})', expected: 0 }, // {} doesn't parse, so no empty-object case
+			{ code: 'b := (c := 10) + 1\nprint(b)\nprint(c)', expected: '11\n10' }, // assignment as an expression
 			{ code: 'Double(n) { return n * 2 }\nprint(Double(d := 7))\nprint(d)', expected: '14\n7' },
 			{ code: 'buf := "................"\nprint(SubStr(buf, 1, pos := 5))\nprint(pos)', expected: '.....\n5' },
 			{ code: 'arr := [1,2,3]\nIdent(n) { return n }\nprint(Ident(arr[0] := 99))\nprint(arr[0])', expected: '99\n99' }, // member-access targets inline too, not just plain vars
 
-			// dynamic variable dereference: %name% and %(expr)%
-			// %name% reads name's own value once (a normal var read), then reads
-			// AGAIN using that value as the variable to look up - two reads
-			// total, e.g. world/hello holding each other's name and swapping
-			{ code: 'world := "hello"\nhello := "world"\nprint(%world% %hello%)', expected: 'worldhello' }, // no space - bare-whitespace concat never inserts one (see the plain-variable version of this same check below)
-			{ code: 'a := "hello"\nb := "world"\nprint(a b)', expected: 'helloworld' }, // same no-space concat behavior with two plain variables, nothing deref-specific about it
+			// %name% and %(expr)% - read the var, then read the var named by its value
+			{ code: 'world := "hello"\nhello := "world"\nprint(%world% %hello%)', expected: 'worldhello' }, // no space, bare whitespace concat doesn't add one
+			{ code: 'a := "hello"\nb := "world"\nprint(a b)', expected: 'helloworld' }, // same with plain variables
 			{ code: 'x := "y"\ny := "z"\nz := "final"\nprint(%x%)', expected: 'z' },
 			{ code: 'a := "b"\nb := "the value"\nprint(%a%)', expected: 'the value' },
-			{ code: 'x := "doesNotExist"\nprint(%x%)', expected: '' }, // deref-ing to a name nothing declared is just an empty result, not an error
-			// %name% chains with indexing/member access same as a plain variable would
+			{ code: 'x := "doesNotExist"\nprint(%x%)', expected: '' }, // undeclared name gives empty, not an error
+			// derefs chain with indexing and member access
 			{ code: 'var := ["foo", "man", "chu"]\nname := "var"\nprint(%name%[1])', expected: 'man' },
-			{ code: 'name := "var"\nvar := ["foo","man","chu"]\nprint(Upper(%name%[0]))', expected: 'FOO' }, // and nests fine inside an ordinary function call
-			// %(expr)% - same trick, but the target name comes from any expression instead of only a bare variable
+			{ code: 'name := "var"\nvar := ["foo","man","chu"]\nprint(Upper(%name%[0]))', expected: 'FOO' },
+			// %(expr)% takes the name from any expression
 			{ code: 'greeting := "hi"\nhi := "there"\nprint(%("g" . "r" . "eeting")%)', expected: 'hi' },
-			{ code: 'foo := "picked foo"\na1 := "f"\na2 := "oo"\nprint(%(a1 a2)%)', expected: 'picked foo' }, // the inside of %( )% is a real expression too, so bare-whitespace concat works there as well
+			{ code: 'foo := "picked foo"\na1 := "f"\na2 := "oo"\nprint(%(a1 a2)%)', expected: 'picked foo' }, // whitespace concat works inside %( )% too
 			{ code: 'letters := ["p","q","r"]\nkey := "letters"\nprint(%(key)%[2])', expected: 'r' }, // and %( )% chains with [index]/.member afterward too
 
-			// #ArrayStartIndex - default is 0 (matches every array-index assertion
-			// above, untouched), opting into 1 shifts every [N] read AND write
+			// #ArrayStartIndex - default 0, 1 shifts every [N] read and write
 			{ code: 'arr := [10,20,30]\nprint(arr[1])', expected: '20' }, // default, unchanged
 			{ code: '#ArrayStartIndex(1)\narr := [10,20,30]\nprint(arr[1])', expected: '10' },
 			{ code: '#ArrayStartIndex(1)\narr := [10,20,30]\nprint(arr[3])', expected: '30' },
 			{ code: '#ArrayStartIndex(1)\narr := [1,2,3]\narr[1] := 99\nprint(arr)', expected: '99,2,3' }, // the write side shifts too, not just reads
-			// %deref% + #ArrayStartIndex(1) together, same idea as the "very
-			// silly" expression-deref example - var4[3] now correctly lands on
-			// "bongo" (1st/2nd/3rd, not 0/1/2), so the built name comes out as
-			// "hey"+"bongo"+%hello%. %hello% itself still resolves to "hello"
-			// (hello's value is "world", and %world% is what would read back
-			// as "hello" - see the swap example above), so the variable this
-			// actually finds is "heybongohello", not "heybongoworld"
+			// deref plus #ArrayStartIndex(1), builds "heybongohello"
 			{ code: '#ArrayStartIndex(1)\nvar1 := "h"\nvar2 := "e"\nvar3 := "y"\nvar4 := ["bingo", "bango", "bongo"]\nworld := "hello"\nhello := "world"\nheybongohello := ["yes", "this", "works"]\nprint(%(var1 var2 var3 var4[3] %hello%)%[1])', expected: 'yes' }, // [1] under #ArrayStartIndex(1) is the 1st element
-			// #SetBatchLines / #SetBatchOps - parsed and stored, don't affect
-			// correctness of anything after them
+			// #SetBatchLines / #SetBatchOps - parsed and stored only
 			{ code: '#SetBatchLines(5)\nprint(isNum(5))', expected: '1' },
 			{ code: '#SetBatchOps(3)\nprint(isNum(5))', expected: '1' },
 
@@ -2588,11 +2511,7 @@ class ASTExecutor {
 			// built-in once its return value isn't a class instance anymore
 			{ code: 'class Calc { addFive(n) { return n + 5 } }\nc := new Calc()\nprint(c.addFive(10).round())', expected: '15' },
 		];
-		// Strict === can never match two separately-built arrays/objects even
-		// when their contents are identical, which is why every array- or
-		// object-returning assertion below used to be commented out as
-		// "faulty" - they were actually passing, the comparison just couldn't
-		// see it. This does a structural comparison instead.
+		// === never matches two separately built arrays/objects, so compare structurally
 		const deepEqual = (a, b) => {
 			if (a === b) return true;
 			if (Array.isArray(a) && Array.isArray(b)) {
@@ -2708,17 +2627,15 @@ class ASTExecutor {
 		//     Scope(N) {        
 		//     Funcs(N) {        
 		//     Credits(N) {    
-		// the assertions run in a sandbox, so nothing of theirs should be left in the real tables
+		// assertions run in a sandbox, nothing of theirs should be left behind
 		if (Object.keys(this.functions).length || Object.keys(this.classes).length) {
 			throw new Error(chalk.red(`Assertions leaked into the script's tables: ${[...Object.keys(this.functions), ...Object.keys(this.classes)].join(", ")}`));
 		}
 		if (debuglogtier > 1)		
 			console.log("All internal function tests passed.");
 	}
-	// ---- scope ----------------------------------------------------------
-	// a scope is just another coyote. spawn() hands back a whole executor
-	// pointed at the same function table, so a call stack is literally a
-	// chain of this class nested inside itself, all the way down
+	// ---- scope ----
+	// a scope is another executor sharing the function table, a call stack is these nested
 	spawn() {
 		return new ASTExecutor(this);
 	}
@@ -2739,8 +2656,7 @@ class ASTExecutor {
 		const value = await found.solve();
 		return member === null ? value : this.step(value, member);
 	}
-	// writes land in THIS scope, never a parent, so a var made inside a
-	// function stays inside that function. reads walk up, writes don't
+	// writes stay in this scope, reads walk up to the parents
 	set(name, value, member = null) {
 		const key = String(name).toLowerCase();
 		if (member === null) {
@@ -2770,8 +2686,7 @@ class ASTExecutor {
 		node[this.arrKey(node, path[path.length - 1])] = value;
 		return found.store(box);
 	}
-	// members show up as a bare name off x.foo or an array of exprs off
-	// x["foo"]["bar"]. flatten both down to one path and be done with it
+	// members are a bare name (x.foo) or exprs (x["foo"]["bar"]), flatten to one path
 	path(member) {
 		if (member === null || member === undefined) {
 			return [];
@@ -2781,17 +2696,14 @@ class ASTExecutor {
 		}
 		return [String(member).replace(/^"|"$/g, '')];
 	}
-	// a plain-numeric path segment into an array gets shifted by whatever
-	// #ArrayStartIndex was set to (default 0, so this is a no-op unless a
-	// script opts into 1-based indexing) - objects/string keys are untouched
+	// numeric path segments into arrays shift by #ArrayStartIndex, object keys don't
 	arrKey(node, key) {
 		if (Array.isArray(node) && /^-?\d+$/.test(key)) {
 			return String(Number(key) - this.settings.arrayStartIndex);
 		}
 		return key;
 	}
-	// walks x["a"]["b"] back down to the root var plus one flat path, so a
-	// nested assignment knows which box to open and which key to drop it in
+	// walks x["a"]["b"] back to the root var and a flat path, for nested assignment
 	async chainpath(node) {
 		const path = [];
 		let cur = node;
@@ -2839,17 +2751,13 @@ class ASTExecutor {
 		const varrr = this.digest(value);
 		
 		try {
-			return JSON.parse(varrr); // Attempt to parse if it's valid JSON
+			return JSON.parse(varrr);
 		} catch {
-			return varrr; // Otherwise, return as is
+			return varrr;
 		}
 	}
-	// Core() is perfect for numbers and json strings but digest() chews a
-	// real object down to nothing, so anything that wants a live array or
-	// object back has to look first and only fall back to Core for strings
-	// Core() floors floats on its way through digest() so it can't be used to
-	// line up a comparison. this only promotes a pair when BOTH sides read as
-	// clean numbers, otherwise they stay exactly as they were
+	// Core() suits numbers and json strings, but digest() flattens real objects, so check for those first
+	// Core() floors floats, so pair() only promotes when both sides are clean numbers
 	numeric(value) {
 		if (typeof value === 'number') {
 			return value;
@@ -2933,16 +2841,12 @@ class ASTExecutor {
             this.print(ast);
         }
     }
-	// #Name(args) directives, applied on the pre-scan pass before run() gets
-	// to any of its own A_ vars or the script's real statements. deliberately
-	// a plain if-chain rather than a lookup table - meant to be easy to bolt
-	// one more "expected behavior" switch onto later without restructuring
+	// #Name(args) directives, applied on the pre-scan. plain if-chain so more are easy to add
 	async applyDirective(statement) {
 		const key = String(statement.name).toLowerCase();
 		const values = await this.execute_ast(statement.params);
 		if (key === "arraystartindex") {
-			// #ArrayStartIndex(0) is the default (matches every existing
-			// script/assertion) - #ArrayStartIndex(1) shifts [N] to 1-based
+			// #ArrayStartIndex(0) is the default, (1) makes [N] 1-based
 			this.settings.arrayStartIndex = this.numeric(values[0]) || 0;
 		} else if (key === "setbatchlines") {
 			this.settings.batchLines = this.numeric(values[0]) || null;
@@ -2950,18 +2854,15 @@ class ASTExecutor {
 			this.settings.batchOps = this.numeric(values[0]) || null;
 		}
 	}
-	async run(ast) {
+async run(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		this.print("running...");
 		//console.log(ast.statements);
 
-		// Store function definitions
 
-		// Iterate over the AST statements
 
 		ast.statements.forEach(statement => {
 			if (statement.type === 4) {
-				// Found a function definition, store it by its name
 				this.functions[statement.name] = statement;
 			}
 			if (statement.type === ItemType.CLASS_DEFINITION) {
@@ -2969,15 +2870,13 @@ class ASTExecutor {
 			}
 		});
 
-		// directives get applied on the same pre-scan pass, before any of
-		// the A_ vars below or the script's own statements ever run
+		// directives first, before the A_ vars and the script
 		for (const statement of ast.statements) {
 			if (statement.type === ItemType.DIRECTIVE) {
 				await this.applyDirective(statement);
 			}
 		}
 
-		// Log the collected function definitions
 		if (debuglogtier > 0)
 			console.log("Functions found:", this.functions);
 		
@@ -3012,25 +2911,960 @@ class ASTExecutor {
 		this.set("A_isWindows", process.platform === "win32");
 		this.set("A_isLinux", process.platform === "linux");
 		this.set("A_isMacOS", process.platform === "darwin");
-		
-		
-		// You can now return or execute AST with the collected functions
-		// For now, return the functions for further processing if needed
+
+		// helpers for the vars below, everything is snapshotted once at start
+		const os = require("os");
+		const path = require("path");
+		const fs = require("fs");
+		const v8 = require("v8");
+		const http = require("http");
+		const crypto = require("crypto");
+		const worker = require("worker_threads");
+		const perf = require("perf_hooks").performance;
+		const env = process.env;
+		const safe = (fn, fallback = "") => { try { const r = fn(); return (r === undefined || r === null) ? fallback : r; } catch { return fallback; } };
+		const bool = x => x ? 1 : 0;
+		const pad = (n, len = 2) => String(n).padStart(len, "0");
+		const win = process.platform === "win32";
+		const mac = process.platform === "darwin";
+		const home = os.homedir();
+		const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+		const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+		const now = new Date();
+		const nowY = now.getFullYear(), nowM = now.getMonth() + 1, nowD = now.getDate();
+		const nowH = now.getHours(), nowMin = now.getMinutes(), nowS = now.getSeconds();
+		const hour12 = nowH % 12 || 12;
+		const isLeap = (nowY % 4 === 0 && nowY % 100 !== 0) || nowY % 400 === 0;
+		const daysInMonth = new Date(nowY, nowM, 0).getDate();
+		const daysInYear = isLeap ? 366 : 365;
+		const yearDay = Math.round((Date.UTC(nowY, nowM - 1, nowD) - Date.UTC(nowY, 0, 0)) / 86400000);
+		const midnightSecs = nowH * 3600 + nowMin * 60 + nowS;
+		const stamp = "" + nowY + pad(nowM) + pad(nowD) + pad(nowH) + pad(nowMin) + pad(nowS);
+		const stampUTC = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+		const isoInfo = (() => { const t = new Date(Date.UTC(nowY, nowM - 1, nowD)); const dow = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - dow); const jan1 = Date.UTC(t.getUTCFullYear(), 0, 1); return { year: t.getUTCFullYear(), week: Math.ceil(((t - jan1) / 86400000 + 1) / 7), weekday: dow }; })();
+		const tzMinutes = -now.getTimezoneOffset();
+		const tzText = (tzMinutes < 0 ? "-" : "+") + pad(Math.floor(Math.abs(tzMinutes) / 60)) + ":" + pad(Math.abs(tzMinutes) % 60);
+		const tzAbbr = safe(() => new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(now).find(p => p.type === "timeZoneName").value, "");
+		const tzStd = Math.max(new Date(nowY, 0, 1).getTimezoneOffset(), new Date(nowY, 6, 1).getTimezoneOffset());
+		const intlInfo = Intl.DateTimeFormat().resolvedOptions();
+		const localeParts = String(intlInfo.locale || "").split("-");
+		const numParts = new Intl.NumberFormat().formatToParts(1234567.5);
+		const hourCycle = safe(() => new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle, "");
+		const mem = process.memoryUsage();
+		const heap = v8.getHeapStatistics();
+		const cpuUse = process.cpuUsage();
+		const cpus = safe(() => os.cpus(), []);
+		const loads = os.loadavg();
+		const totalMem = os.totalmem(), freeMem = os.freemem();
+		const nets = Object.values(safe(() => os.networkInterfaces(), {})).flat().filter(Boolean);
+		const ext4 = nets.filter(n => !n.internal && String(n.family).endsWith("4"));
+		const ext6 = nets.filter(n => !n.internal && String(n.family).endsWith("6"));
+		const macs = nets.filter(n => !n.internal && n.mac && n.mac !== "00:00:00:00:00:00");
+		const nodeVer = process.versions.node.split(".").map(Number);
+		const instanceId = crypto.randomBytes(4).toString("hex");
+		const xdg = (name, fallback) => env[name] || path.join(home, fallback);
+
+		// ---- common scalars ----
+		this.set("A_true", 1);
+		this.set("A_false", 0);
+		this.set("A_tab", "\t");
+		this.set("A_newline", "\n");
+		this.set("A_crlf", "\r\n");
+		this.set("A_space", " ");
+		this.set("A_quote", "\"");
+		this.set("A_eol", os.EOL);
+		this.set("A_args", process.argv.slice(2));
+		this.set("A_Year", nowY);
+		this.set("A_Month", nowM);
+		this.set("A_Day", nowD);
+		this.set("A_Hour", nowH);
+		this.set("A_Min", nowMin);
+		this.set("A_Sec", nowS);
+		this.set("A_MSec", now.getMilliseconds());
+		this.set("A_YYYY", String(nowY));
+		this.set("A_MM", pad(nowM));
+		this.set("A_DD", pad(nowD));
+		this.set("A_HH", pad(nowH));
+		this.set("A_MI", pad(nowMin));
+		this.set("A_SS", pad(nowS));
+		this.set("A_MMMM", monthNames[nowM - 1]);
+		this.set("A_MMM", monthNames[nowM - 1].slice(0, 3));
+		this.set("A_DDDD", dayNames[now.getDay()]);
+		this.set("A_DDD", dayNames[now.getDay()].slice(0, 3));
+		this.set("A_WDay", now.getDay() + 1);
+		this.set("A_YDay", yearDay);
+		this.set("A_YWeek", String(isoInfo.year) + pad(isoInfo.week));
+		this.set("A_Now", stamp);
+		this.set("A_NowUTC", stampUTC);
+		this.set("A_Date", nowY + "-" + pad(nowM) + "-" + pad(nowD));
+		this.set("A_Time", pad(nowH) + ":" + pad(nowMin) + ":" + pad(nowS));
+		this.set("A_DateTime", nowY + "-" + pad(nowM) + "-" + pad(nowD) + " " + pad(nowH) + ":" + pad(nowMin) + ":" + pad(nowS));
+		this.set("A_unixTime", Math.floor(now.getTime() / 1000));
+		this.set("A_unixTimeMs", now.getTime());
+
+		// ---- console and runtime context ----
+		this.set("A_Console", {
+			stdinIsTTY: bool(process.stdin.isTTY),
+			stdoutIsTTY: bool(process.stdout.isTTY),
+			stderrIsTTY: bool(process.stderr.isTTY),
+			isPipedInput: bool(!process.stdin.isTTY),
+			isPipedOutput: bool(!process.stdout.isTTY),
+			area: (process.stdout.columns || 80) * (process.stdout.rows || 24),
+			colorDepth: safe(() => process.stdout.getColorDepth(), 1),
+			hasColor: bool(safe(() => process.stdout.hasColors(), false)),
+			hasTrueColor: bool(safe(() => process.stdout.getColorDepth() >= 24, false)),
+			noColor: bool(env.NO_COLOR !== undefined),
+			forceColor: env.FORCE_COLOR || "",
+			term: env.TERM || "",
+			termProgram: env.TERM_PROGRAM || "",
+			termProgramVersion: env.TERM_PROGRAM_VERSION || "",
+			colorTerm: env.COLORTERM || "",
+		});
+
+		this.set("A_Context", {
+			isHeadless: bool(!win && !mac && !env.DISPLAY && !env.WAYLAND_DISPLAY),
+			isTmux: bool(env.TMUX),
+			isScreen: bool(env.STY),
+			isVSCodeTerminal: bool(env.TERM_PROGRAM === "vscode"),
+			isSSH: bool(env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY),
+			isCI: bool(env.CI),
+			isGitHubActions: bool(env.GITHUB_ACTIONS),
+			isGitLabCI: bool(env.GITLAB_CI),
+			isJenkins: bool(env.JENKINS_URL),
+			isTravisCI: bool(env.TRAVIS),
+			isCircleCI: bool(env.CIRCLECI),
+			isAzurePipelines: bool(env.TF_BUILD),
+			isDocker: bool(safe(() => fs.existsSync("/.dockerenv"), false)),
+			isWSL: bool(os.release().toLowerCase().includes("microsoft") || env.WSL_DISTRO_NAME),
+			wslDistro: env.WSL_DISTRO_NAME || "",
+			isTermux: bool(env.TERMUX_VERSION),
+			isRoot: bool(safe(() => process.getuid() === 0, false)),
+			isProduction: bool(env.NODE_ENV === "production"),
+			isTestEnv: bool(env.NODE_ENV === "test"),
+		});
+
+		// ---- script and process ----
+		this.set("A_Process", {
+			scriptFullPath: __filename,
+			scriptNameNoExt: path.basename(__filename, path.extname(__filename)),
+			workingDirName: path.basename(process.cwd()),
+			workingDirParent: path.dirname(process.cwd()),
+			driveRoot: path.parse(process.cwd()).root,
+			execName: path.basename(process.execPath),
+			execDir: path.dirname(process.execPath),
+			argCount: process.argv.slice(2).length,
+			argv: process.argv,
+			execArgv: process.execArgv,
+			ppid: process.ppid,
+			title: process.title,
+			uptime: process.uptime(),
+			startTime: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+			startTimeUnix: Math.floor(Date.now() / 1000 - process.uptime()),
+			userId: safe(() => process.getuid(), -1),
+			groupId: safe(() => process.getgid(), -1),
+			effectiveUserId: safe(() => process.geteuid(), -1),
+			userShell: safe(() => os.userInfo().shell, ""),
+			cpuUserTime: cpuUse.user,
+			cpuSystemTime: cpuUse.system,
+			hrtimeMs: Number(process.hrtime.bigint() / 1000000n),
+			perfNow: perf.now(),
+			timeOrigin: perf.timeOrigin,
+			exitCode: process.exitCode || 0,
+			isMainThread: bool(worker.isMainThread),
+			threadId: worker.threadId,
+			envCount: Object.keys(env).length,
+			instanceId: instanceId,
+			tempFile: path.join(os.tmpdir(), "coyote_" + instanceId + "_" + process.pid),
+		});
+
+		// ---- node and the engine ----
+		this.set("A_Node", {
+			major: nodeVer[0],
+			minor: nodeVer[1],
+			patch: nodeVer[2],
+			release: process.release.name,
+			lts: process.release.lts || "",
+			isLTS: bool(process.release.lts),
+			env: env.NODE_ENV || "",
+			options: env.NODE_OPTIONS || "",
+			path: env.NODE_PATH || "",
+			moduleCount: Object.keys(require.cache).length,
+			builtinModuleCount: require("module").builtinModules.length,
+		});
+
+		this.set("A_NodeVersions", { ...process.versions });
+
+		this.set("A_NodeFeatures", {
+			fetch: bool(typeof fetch === "function"),
+			webCrypto: bool(typeof globalThis.crypto !== "undefined"),
+			structuredClone: bool(typeof structuredClone === "function"),
+			abortController: bool(typeof AbortController === "function"),
+			sharedArrayBuffer: bool(typeof SharedArrayBuffer === "function"),
+			webAssembly: bool(typeof WebAssembly === "object"),
+			textEncoder: bool(typeof TextEncoder === "function"),
+			url: bool(typeof URL === "function"),
+			intl: bool(typeof Intl === "object"),
+			bigInt: bool(typeof BigInt === "function"),
+			atomics: bool(typeof Atomics === "object"),
+			weakRef: bool(typeof WeakRef === "function"),
+			queueMicrotask: bool(typeof queueMicrotask === "function"),
+			eventTarget: bool(typeof EventTarget === "function"),
+			blob: bool(typeof Blob === "function"),
+			formData: bool(typeof FormData === "function"),
+			webSocket: bool(typeof WebSocket === "function"),
+			tls: bool(process.versions.openssl),
+		});
+
+		// ---- memory ----
+		this.set("A_Memory", {
+			totalMB: Math.round(totalMem / 1048576),
+			totalGB: Math.round(totalMem / 1073741824 * 100) / 100,
+			freeMB: Math.round(freeMem / 1048576),
+			freeGB: Math.round(freeMem / 1073741824 * 100) / 100,
+			used: totalMem - freeMem,
+			usedMB: Math.round((totalMem - freeMem) / 1048576),
+			percentUsed: Math.round((totalMem - freeMem) / totalMem * 10000) / 100,
+			heapUsed: mem.heapUsed,
+			heapTotal: mem.heapTotal,
+			heapLimit: heap.heap_size_limit,
+			heapAvailable: heap.total_available_size,
+			rss: mem.rss,
+			external: mem.external,
+			arrayBuffers: mem.arrayBuffers || 0,
+			malloced: heap.malloced_memory,
+			nativeContexts: heap.number_of_native_contexts,
+		});
+
+		// ---- os and hardware ----
+		this.set("A_OS", {
+			type: os.type(),
+			release: os.release(),
+			version: safe(() => os.version(), ""),
+			machine: safe(() => os.machine(), process.arch),
+			endian: os.endianness(),
+			devNull: os.devNull,
+			availableParallelism: safe(() => os.availableParallelism(), cpus.length),
+			cpuSpeed: cpus[0] ? cpus[0].speed : 0,
+			cpuSpeeds: cpus.map(c => c.speed),
+			loadAvg: loads,
+			tickCount: Math.round(os.uptime() * 1000),
+			uptimeMinutes: Math.floor(os.uptime() / 60),
+			uptimeHours: Math.floor(os.uptime() / 3600),
+			uptimeDays: Math.floor(os.uptime() / 86400),
+			bootTime: new Date(Date.now() - os.uptime() * 1000).toISOString(),
+			bootTimeUnix: Math.floor(Date.now() / 1000 - os.uptime()),
+			is64Bit: bool(/64/.test(process.arch)),
+			isX64: bool(process.arch === "x64"),
+			isARM: bool(process.arch.startsWith("arm")),
+			isAppleSilicon: bool(mac && process.arch === "arm64"),
+			isLittleEndian: bool(os.endianness() === "LE"),
+			isBigEndian: bool(os.endianness() === "BE"),
+			isUnix: bool(!win),
+			isAndroid: bool(process.platform === "android"),
+			isFreeBSD: bool(process.platform === "freebsd"),
+			isOpenBSD: bool(process.platform === "openbsd"),
+			isSunOS: bool(process.platform === "sunos"),
+			isAIX: bool(process.platform === "aix"),
+			maxPath: win ? 260 : (mac ? 1024 : 4096),
+			maxFileName: 255,
+		});
+
+		// ---- environment and folders ----
+		this.set("A_Env", {
+			pathSep: path.sep,
+			pathDelimiter: path.delimiter,
+			pathEntryCount: (env.PATH || "").split(path.delimiter).filter(Boolean).length,
+			shell: env.SHELL || env.ComSpec || "",
+			shellLevel: Number(env.SHLVL) || 0,
+			display: env.DISPLAY || "",
+			waylandDisplay: env.WAYLAND_DISPLAY || "",
+			sessionType: env.XDG_SESSION_TYPE || "",
+			desktopEnvironment: env.XDG_CURRENT_DESKTOP || "",
+			userDomain: env.USERDOMAIN || "",
+			computerName: env.COMPUTERNAME || os.hostname(),
+			numberOfProcessors: Number(env.NUMBER_OF_PROCESSORS) || cpus.length,
+			processorArchitecture: env.PROCESSOR_ARCHITECTURE || process.arch,
+			os: env.OS || os.type(),
+			lang: env.LANG || "",
+			langCode: (env.LANG || "").split(".")[0],
+			lcAll: env.LC_ALL || "",
+			editor: env.EDITOR || env.VISUAL || "",
+			pager: env.PAGER || "",
+			browser: env.BROWSER || "",
+			logName: env.LOGNAME || "",
+			pwd: env.PWD || process.cwd(),
+			oldPwd: env.OLDPWD || "",
+			tz: env.TZ || "",
+			httpProxy: env.HTTP_PROXY || env.http_proxy || "",
+			httpsProxy: env.HTTPS_PROXY || env.https_proxy || "",
+			noProxy: env.NO_PROXY || env.no_proxy || "",
+			hasProxy: bool(env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy),
+		});
+
+		this.set("A_Dirs", {
+			desktop: path.join(home, "Desktop"),
+			documents: path.join(home, "Documents"),
+			downloads: path.join(home, "Downloads"),
+			pictures: path.join(home, "Pictures"),
+			music: path.join(home, "Music"),
+			videos: path.join(home, mac ? "Movies" : "Videos"),
+			config: win ? (env.APPDATA || path.join(home, "AppData", "Roaming")) : (mac ? path.join(home, "Library", "Application Support") : xdg("XDG_CONFIG_HOME", ".config")),
+			cache: win ? (env.LOCALAPPDATA || path.join(home, "AppData", "Local")) : (mac ? path.join(home, "Library", "Caches") : xdg("XDG_CACHE_HOME", ".cache")),
+			data: win ? (env.LOCALAPPDATA || path.join(home, "AppData", "Local")) : (mac ? path.join(home, "Library", "Application Support") : xdg("XDG_DATA_HOME", ".local/share")),
+			state: win ? (env.LOCALAPPDATA || path.join(home, "AppData", "Local")) : (mac ? path.join(home, "Library", "Logs") : xdg("XDG_STATE_HOME", ".local/state")),
+			userProfile: env.USERPROFILE || home,
+			homeDrive: env.HOMEDRIVE || "",
+			homePath: env.HOMEPATH || "",
+			appData: env.APPDATA || "",
+			localAppData: env.LOCALAPPDATA || "",
+			programData: env.ProgramData || "",
+			programFiles: env.ProgramFiles || "",
+			programFilesX86: env["ProgramFiles(x86)"] || "",
+			winDir: env.windir || "",
+			systemRoot: env.SystemRoot || "",
+			systemDrive: env.SystemDrive || "",
+			comSpec: env.ComSpec || "",
+			pathExt: env.PATHEXT || "",
+		});
+
+		// ---- date and time extras, locale, randomness ----
+		this.set("A_TimeInfo", {
+			dayOfWeek: now.getDay(),
+			isoWeekday: isoInfo.weekday,
+			isoWeek: isoInfo.week,
+			isoWeekYear: isoInfo.year,
+			dateUS: pad(nowM) + "/" + pad(nowD) + "/" + nowY,
+			dateEU: pad(nowD) + "/" + pad(nowM) + "/" + nowY,
+			timeShort: pad(nowH) + ":" + pad(nowMin),
+			time12: hour12 + ":" + pad(nowMin) + ":" + pad(nowS) + " " + (nowH < 12 ? "AM" : "PM"),
+			ampm: nowH < 12 ? "AM" : "PM",
+			hour12: hour12,
+			dateLocale: now.toLocaleDateString(),
+			timeLocale: now.toLocaleTimeString(),
+			dateTimeLocale: now.toLocaleString(),
+			utcYear: now.getUTCFullYear(),
+			utcMonth: now.getUTCMonth() + 1,
+			utcDay: now.getUTCDate(),
+			utcHour: now.getUTCHours(),
+			utcMin: now.getUTCMinutes(),
+			utcSec: now.getUTCSeconds(),
+			utcOffset: tzText,
+			utcOffsetMin: tzMinutes,
+			utcOffsetHours: tzMinutes / 60,
+			timezoneAbbr: tzAbbr,
+			isDST: bool(now.getTimezoneOffset() < tzStd),
+			quarter: Math.ceil(nowM / 3),
+			isLeapYear: bool(isLeap),
+			daysInMonth: daysInMonth,
+			daysInYear: daysInYear,
+			daysLeftInMonth: daysInMonth - nowD,
+			daysLeftInYear: daysInYear - yearDay,
+			century: Math.ceil(nowY / 100),
+			decade: Math.floor(nowY / 10) * 10,
+			isWeekend: bool(now.getDay() === 0 || now.getDay() === 6),
+			isWeekday: bool(now.getDay() !== 0 && now.getDay() !== 6),
+			epochDays: Math.floor(now.getTime() / 86400000),
+			julianDay: now.getTime() / 86400000 + 2440587.5,
+			secondsSinceMidnight: midnightSecs,
+			dayProgress: Math.round(midnightSecs / 86400 * 10000) / 10000,
+			yearProgress: Math.round(yearDay / daysInYear * 10000) / 10000,
+		});
+
+		this.set("A_LocaleInfo", {
+			language: localeParts[0] || "",
+			region: localeParts[1] || "",
+			calendar: intlInfo.calendar || "",
+			numberingSystem: intlInfo.numberingSystem || "",
+			hourCycle: hourCycle,
+			is24Hour: bool(hourCycle === "h23" || hourCycle === "h24"),
+			decimalSeparator: (numParts.find(p => p.type === "decimal") || { value: "." }).value,
+			thousandsSeparator: (numParts.find(p => p.type === "group") || { value: "," }).value,
+		});
+
+		this.set("A_Random", {
+			float: Math.random(),
+			int: Math.floor(Math.random() * 2147483648),
+			byte: Math.floor(Math.random() * 256),
+			bool: Math.round(Math.random()),
+			uuid: crypto.randomUUID(),
+			hex: crypto.randomBytes(16).toString("hex"),
+		});
+
+		// ---- the interpreter itself ----
+		this.set("A_Interpreter", {
+			name: "coyote",
+			yoteExt: ".yote",
+			arrayStartIndex: this.settings.arrayStartIndex,
+			batchLines: this.settings.batchLines ?? "",
+			batchOps: this.settings.batchOps ?? "",
+			scopeDepth: this.depth(),
+			functionCount: Object.keys(this.functions).length,
+			functionNames: Object.keys(this.functions),
+			classCount: Object.keys(this.classes).length,
+			classNames: Object.keys(this.classes),
+			nativeCount: Object.keys(this.natives).length,
+			methodCount: Object.keys(this.methods).length,
+			statementCount: ast.statements.length,
+			directiveCount: ast.statements.filter(s => s.type === ItemType.DIRECTIVE).length,
+			debugTier: debuglogtier,
+			hasDebugLog: bool(debuglogtier > 0),
+		});
+
+		// ---- math, limits, physics ----
+		this.set("A_Math", {
+			e: Math.E,
+			tau: Math.PI * 2,
+			halfPi: Math.PI / 2,
+			quarterPi: Math.PI / 4,
+			invPi: 1 / Math.PI,
+			sqrtPi: Math.sqrt(Math.PI),
+			sqrt2Pi: Math.sqrt(2 * Math.PI),
+			phi: (1 + Math.sqrt(5)) / 2,
+			silverRatio: 1 + Math.SQRT2,
+			plasticNumber: 1.324717957244746,
+			sqrt2: Math.SQRT2,
+			sqrt1_2: Math.SQRT1_2,
+			sqrt3: Math.sqrt(3),
+			sqrt5: Math.sqrt(5),
+			ln2: Math.LN2,
+			ln10: Math.LN10,
+			log2e: Math.LOG2E,
+			log10e: Math.LOG10E,
+			eulerGamma: 0.5772156649015329,
+			apery: 1.2020569031595942,
+			catalan: 0.915965594177219,
+			goldenAngle: Math.PI * (3 - Math.sqrt(5)),
+			goldenAngleDeg: 180 * (3 - Math.sqrt(5)),
+			degToRad: Math.PI / 180,
+			radToDeg: 180 / Math.PI,
+			degPerCircle: 360,
+			gradiansPerCircle: 400,
+			arcMinutesPerDeg: 60,
+			arcSecondsPerDeg: 3600,
+		});
+
+		this.set("A_Limits", {
+			maxSafeInt: Number.MAX_SAFE_INTEGER,
+			minSafeInt: Number.MIN_SAFE_INTEGER,
+			maxFloat: Number.MAX_VALUE,
+			minFloat: Number.MIN_VALUE,
+			epsilon: Number.EPSILON,
+			infinity: Infinity,
+			negInfinity: -Infinity,
+			int8Max: 127,
+			int8Min: -128,
+			uint8Max: 255,
+			int16Max: 32767,
+			int16Min: -32768,
+			uint16Max: 65535,
+			int32Max: 2147483647,
+			int32Min: -2147483648,
+			uint32Max: 4294967295,
+			int64Max: "9223372036854775807",
+			int64Min: "-9223372036854775808",
+			uint64Max: "18446744073709551615",
+			float32Max: 3.4028234663852886e38,
+			float32Min: 1.1754943508222875e-38,
+			float32Epsilon: 1.1920928955078125e-7,
+			maxArrayLength: 4294967295,
+			maxStringLength: require("buffer").constants.MAX_STRING_LENGTH,
+			maxBufferLength: require("buffer").constants.MAX_LENGTH,
+		});
+
+		this.set("A_Physics", {
+			speedOfLight: 299792458,
+			planck: 6.62607015e-34,
+			planckReduced: 1.054571817e-34,
+			boltzmann: 1.380649e-23,
+			avogadro: 6.02214076e23,
+			elementaryCharge: 1.602176634e-19,
+			gasConstant: 8.31446261815324,
+			faraday: 96485.33212331001,
+			gravitationalConstant: 6.6743e-11,
+			standardGravity: 9.80665,
+			electronMass: 9.1093837015e-31,
+			protonMass: 1.67262192369e-27,
+			neutronMass: 1.67492749804e-27,
+			atomicMassUnit: 1.66053906660e-27,
+			vacuumPermittivity: 8.8541878128e-12,
+			vacuumPermeability: 1.25663706212e-6,
+			fineStructure: 7.2973525693e-3,
+			rydberg: 10973731.568160,
+			stefanBoltzmann: 5.670374419e-8,
+			wienDisplacement: 2.897771955e-3,
+			standardAtmosphere: 101325,
+			absoluteZeroC: -273.15,
+			speedOfSound: 343,
+			earthRadiusM: 6371008.8,
+			earthRadiusKm: 6371.0088,
+			earthCircumferenceKm: 40075.017,
+			earthMassKg: 5.972168e24,
+			sunMassKg: 1.98847e30,
+			astronomicalUnitM: 149597870700,
+			lightYearM: 9460730472580800,
+			parsecM: 3.0856775814913673e16,
+			siderealDaySec: 86164.0905,
+		});
+
+		// ---- unit conversions (multiply by the factor, name reads from -> to) ----
+		this.set("A_UnitConversions", {
+			inchToCm: 2.54,
+			inchToMm: 25.4,
+			cmToInch: 1 / 2.54,
+			footToInch: 12,
+			footToM: 0.3048,
+			mToFoot: 1 / 0.3048,
+			yardToFoot: 3,
+			yardToM: 0.9144,
+			mileToFoot: 5280,
+			mileToM: 1609.344,
+			mileToKm: 1.609344,
+			kmToMile: 1 / 1.609344,
+			nauticalMileToM: 1852,
+			pointsPerInch: 72,
+			picasPerInch: 6,
+			pixelsPerInch: 96,
+			pointToMm: 25.4 / 72,
+			lbToKg: 0.45359237,
+			kgToLb: 1 / 0.45359237,
+			ozToG: 28.349523125,
+			lbToOz: 16,
+			stoneToKg: 6.35029318,
+			shortTonToKg: 907.18474,
+			tonneToKg: 1000,
+			grainToMg: 64.79891,
+			caratToMg: 200,
+			galToL: 3.785411784,
+			impGalToL: 4.54609,
+			quartToL: 0.946352946,
+			pintToL: 0.473176473,
+			cupToMl: 236.588236,
+			flOzToMl: 29.5735295625,
+			tbspToMl: 14.78676478125,
+			tspToMl: 4.92892159375,
+			cubicFootToL: 28.316846592,
+			acreToM2: 4046.8564224,
+			hectareToM2: 10000,
+			sqFootToM2: 0.09290304,
+			sqMileToKm2: 2.589988110336,
+			mphToMs: 0.44704,
+			mphToKmh: 1.609344,
+			kmhToMs: 1 / 3.6,
+			knotToMs: 1852 / 3600,
+			barToPa: 100000,
+			psiToPa: 6894.757293168,
+			atmToPa: 101325,
+			mmHgToPa: 133.322387415,
+			calToJ: 4.184,
+			kwhToJ: 3600000,
+			btuToJ: 1055.05585262,
+			hpToW: 745.69987158227,
+			celsiusToKelvin: 273.15,
+			fahrenheitOffset: 32,
+			fahrenheitRatio: 1.8,
+		});
+
+		this.set("A_DataSizes", {
+			KiB: 1024,
+			MiB: 1048576,
+			GiB: 1073741824,
+			TiB: 1099511627776,
+			PiB: 1125899906842624,
+			KB: 1000,
+			MB: 1000000,
+			GB: 1000000000,
+			TB: 1000000000000,
+			PB: 1000000000000000,
+			bitsPerByte: 8,
+		});
+
+		this.set("A_TimeUnits", {
+			msPerSecond: 1000,
+			msPerMinute: 60000,
+			msPerHour: 3600000,
+			msPerDay: 86400000,
+			msPerWeek: 604800000,
+			secondsPerMinute: 60,
+			secondsPerHour: 3600,
+			secondsPerDay: 86400,
+			secondsPerWeek: 604800,
+			secondsPerYear: 31557600,
+			minutesPerHour: 60,
+			minutesPerDay: 1440,
+			hoursPerDay: 24,
+			hoursPerWeek: 168,
+			daysPerWeek: 7,
+			daysPerYear: 365,
+			daysPerLeapYear: 366,
+			daysPerJulianYear: 365.25,
+			daysPerGregorianYear: 365.2425,
+			weeksPerYear: 52.1775,
+			monthsPerYear: 12,
+			microsPerSecond: 1000000,
+			nanosPerSecond: 1000000000,
+		});
+
+		// ---- characters ----
+		this.set("A_Chars", {
+			cr: "\r",
+			singleQuote: "'",
+			backtick: "`",
+			backslash: "\\",
+			slash: "/",
+			comma: ",",
+			semicolon: ";",
+			colon: ":",
+			period: ".",
+			pipe: "|",
+			ampersand: "&",
+			percent: "%",
+			caret: "^",
+			tilde: "~",
+			dollar: "$",
+			hash: "#",
+			at: "@",
+			exclamation: "!",
+			question: "?",
+			asterisk: "*",
+			plus: "+",
+			minus: "-",
+			equals: "=",
+			underscore: "_",
+			lparen: "(",
+			rparen: ")",
+			lbracket: "[",
+			rbracket: "]",
+			lbrace: "{",
+			rbrace: "}",
+			lt: "<",
+			gt: ">",
+			nullChar: "\0",
+			bell: "\x07",
+			backspace: "\b",
+			formFeed: "\f",
+			verticalTab: "\v",
+			escape: "\x1b",
+			delete: "\x7f",
+			nbsp: "\u00a0",
+			zeroWidthSpace: "\u200b",
+			zeroWidthJoiner: "\u200d",
+			bom: "\ufeff",
+			replacementChar: "\ufffd",
+			lineSeparator: "\u2028",
+			paragraphSeparator: "\u2029",
+			softHyphen: "\u00ad",
+			ellipsis: "\u2026",
+			enDash: "\u2013",
+			emDash: "\u2014",
+			bullet: "\u2022",
+			degreeSign: "\u00b0",
+		});
+
+		this.set("A_CharSets", {
+			lowerCase: "abcdefghijklmnopqrstuvwxyz",
+			upperCase: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+			letters: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+			digits: "0123456789",
+			alphanumeric: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+			hexDigits: "0123456789abcdef",
+			hexDigitsUpper: "0123456789ABCDEF",
+			octalDigits: "01234567",
+			binaryDigits: "01",
+			vowels: "aeiou",
+			consonants: "bcdfghjklmnpqrstvwxyz",
+			punctuation: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+			whitespace: " \t\n\r\v\f",
+			printableAscii: String.fromCharCode(...Array.from({ length: 95 }, (_, i) => i + 32)),
+			base32: "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+			base36: "0123456789abcdefghijklmnopqrstuvwxyz",
+			base58: "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+			base64: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+			base64Url: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+		});
+
+		this.set("A_CharCodes", {
+			asciiMax: 127,
+			latin1Max: 255,
+			bmpMax: 65535,
+			unicodeMax: 1114111,
+			highSurrogateStart: 55296,
+			highSurrogateEnd: 56319,
+			lowSurrogateStart: 56320,
+			lowSurrogateEnd: 57343,
+			asciiPrintableMin: 32,
+			asciiPrintableMax: 126,
+			asciiDigitMin: 48,
+			asciiUpperMin: 65,
+			asciiLowerMin: 97,
+			asciiCaseOffset: 32,
+		});
+
+		// ---- ansi escapes (colors are A_AnsiFg / A_AnsiBg further down) ----
+		this.set("A_Ansi", {
+			reset: "\x1b[0m",
+			bold: "\x1b[1m",
+			dim: "\x1b[2m",
+			italic: "\x1b[3m",
+			underline: "\x1b[4m",
+			blink: "\x1b[5m",
+			inverse: "\x1b[7m",
+			hidden: "\x1b[8m",
+			strike: "\x1b[9m",
+			noBold: "\x1b[22m",
+			noItalic: "\x1b[23m",
+			noUnderline: "\x1b[24m",
+			clearScreen: "\x1b[2J",
+			clearLine: "\x1b[2K",
+			clearToEnd: "\x1b[0J",
+			eraseScrollback: "\x1b[3J",
+			cursorHome: "\x1b[H",
+			cursorHide: "\x1b[?25l",
+			cursorShow: "\x1b[?25h",
+			cursorSave: "\x1b[s",
+			cursorRestore: "\x1b[u",
+			cursorUp: "\x1b[1A",
+			cursorDown: "\x1b[1B",
+			cursorRight: "\x1b[1C",
+			cursorLeft: "\x1b[1D",
+			altScreenOn: "\x1b[?1049h",
+			altScreenOff: "\x1b[?1049l",
+			resetTerminal: "\x1bc",
+		});
+
+		// ---- regex patterns (as strings, for validation) ----
+		this.set("A_Regex", {
+			// Numbers
+			integer: "^[+-]?\\d+$", //[cite: 1]
+			unsignedInteger: "^\\d+$", //[cite: 1]
+			positiveInteger: "^[1-9]\\d*$", //[cite: 1]
+			negativeInteger: "^-[1-9]\\d*$", //[cite: 1]
+			float: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$", //[cite: 1]
+			decimal: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)$", //[cite: 1]
+			scientific: "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)[eE][+-]?\\d+$", //[cite: 1]
+			percentage: "^[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)%$", //[cite: 1]
+			thousands: "^[+-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?$", //[cite: 1]
+			europeanNumber: "^[+-]?\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?$", //[cite: 1]
+			currencyUSD: "^\\$?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{2})?$", //[cite: 1]
+			fraction: "^[+-]?\\d+/[1-9]\\d*$", //[cite: 1]
+			binary: "^(?:0b)?[01]+$", //[cite: 1]
+			octal: "^(?:0o)?[0-7]+$", //[cite: 1]
+			hex: "^(?:0x)?[0-9a-fA-F]+$", //[cite: 1]
+			hexBytes: "^(?:[0-9a-fA-F]{2})+$", //[cite: 1]
+
+			// Text and Identifiers
+			alpha: "^[A-Za-z]+$", //[cite: 1]
+			alnum: "^[A-Za-z0-9]+$", //[cite: 1]
+			lowercase: "^[a-z]+$", //[cite: 1]
+			uppercase: "^[A-Z]+$", //[cite: 1]
+			titleCase: "^[A-Z][a-z]*(?: [A-Z][a-z]*)*$", //[cite: 1]
+			identifier: "^[A-Za-z_][A-Za-z0-9_]*$", //[cite: 1]
+			jsIdentifier: "^[A-Za-z_$][A-Za-z0-9_$]*$", //[cite: 1]
+			camelCase: "^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$", //[cite: 1]
+			pascalCase: "^[A-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$", //[cite: 1]
+			snakeCase: "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$", //[cite: 1]
+			screamingSnakeCase: "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$", //[cite: 1]
+			kebabCase: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", //[cite: 1]
+			slug: "^[a-z0-9]+(?:-[a-z0-9]+)*$", //[cite: 1]
+			username: "^[A-Za-z][A-Za-z0-9_.-]{2,31}$", //[cite: 1]
+			personName: "^[A-Za-z]+(?:[ '-][A-Za-z]+)*$", //[cite: 1]
+			mediumPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$", //[cite: 1]
+			strongPassword: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9\\s]).{8,}$", //[cite: 1]
+			pin4: "^\\d{4}$", //[cite: 1]
+			pin6: "^\\d{6}$", //[cite: 1]
+			boolean: "^(?:true|false)$", //[cite: 1]
+			jsonString: "^\"(?:[^\"\\\\\\x00-\\x1F]|\\\\[\"\\\\/bfnrt]|\\\\u[0-9a-fA-F]{4})*\"$", //[cite: 1]
+
+			// Network
+			mac: "^[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\\1){4}[0-9A-Fa-f]{2}$", //[cite: 1]
+			macNoSeparator: "^[0-9A-Fa-f]{12}$", //[cite: 1]
+			emailLoose: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", //[cite: 1]
+			httpMethod: "^(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)$", //[cite: 1]
+			httpStatusCode: "^[1-5]\\d\\d$", //[cite: 1]
+			mimeType: "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$", //[cite: 1]
+			queryString: "^\\??[^=&#\\s]+(?:=[^&#\\s]*)?(?:&[^=&#\\s]+(?:=[^&#\\s]*)?)*$", //[cite: 1]
+			twitterHandle: "^@[A-Za-z0-9_]{1,15}$", //[cite: 1]
+			youtubeVideoId: "^[A-Za-z0-9_-]{11}$", //[cite: 1]
+
+			// Phone and Postal
+			e164: "^\\+[1-9]\\d{1,14}$", //[cite: 1]
+			usPhone: "^(?:\\+?1[ .-]?)?(?:\\([2-9]\\d{2}\\)|[2-9]\\d{2})[ .-]?[2-9]\\d{2}[ .-]?\\d{4}$", //[cite: 1]
+			usZip: "^\\d{5}(?:-\\d{4})?$", //[cite: 1]
+			ukPostcode: "^[A-Za-z]{1,2}\\d[A-Za-z\\d]? ?\\d[A-Za-z]{2}$", //[cite: 1]
+			usState: "^(?:A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])$", //[cite: 1]
+			countryCode2: "^[A-Z]{2}$", //[cite: 1]
+			countryCode3: "^[A-Z]{3}$", //[cite: 1]
+
+			// Dates and Times
+			year: "^\\d{4}$", //[cite: 1]
+			month: "^(?:0[1-9]|1[0-2])$", //[cite: 1]
+			dayOfMonth: "^(?:0[1-9]|[12]\\d|3[01])$", //[cite: 1]
+			hour24: "^(?:[01]\\d|2[0-3])$", //[cite: 1]
+			minute: "^[0-5]\\d$", //[cite: 1]
+			time24: "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?$", //[cite: 1]
+			time12: "^(?:0?[1-9]|1[0-2]):[0-5]\\d(?::[0-5]\\d)?\\s?[AaPp][Mm]$", //[cite: 1]
+			isoWeek: "^\\d{4}-W(?:0[1-9]|[1-4]\\d|5[0-3])(?:-[1-7])?$", //[cite: 1]
+			utcOffset: "^[+-](?:0\\d|1[0-4]):[0-5]\\d$", //[cite: 1]
+			unixTimestamp: "^\\d{10}$", //[cite: 1]
+			unixTimestampMs: "^\\d{13}$", //[cite: 1]
+
+			// IDs, Hashes, and Versions
+			uuid: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", //[cite: 1]
+			uuidNoDashes: "^[0-9a-fA-F]{32}$", //[cite: 1]
+			ulid: "^[0-7][0-9A-HJKMNP-TV-Z]{25}$", //[cite: 1]
+			nanoid: "^[A-Za-z0-9_-]{21}$", //[cite: 1]
+			objectId: "^[0-9a-fA-F]{24}$", //[cite: 1]
+			md5: "^[a-fA-F0-9]{32}$", //[cite: 1]
+			sha1: "^[a-fA-F0-9]{40}$", //[cite: 1]
+			sha256: "^[a-fA-F0-9]{64}$", //[cite: 1]
+			sha512: "^[a-fA-F0-9]{128}$", //[cite: 1]
+			gitCommit: "^[0-9a-f]{7,40}$", //[cite: 1]
+			versionDotted: "^\\d+(?:\\.\\d+){1,3}$", //[cite: 1]
+			hexColor: "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", //[cite: 1]
+			hexColorAlpha: "^#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})$", //[cite: 1]
+
+			// Money, Banking, Commerce
+			cardNumber: "^\\d{13,19}$", //[cite: 1]
+			visa: "^4\\d{12}(?:\\d{3}){0,2}$", //[cite: 1]
+			mastercard: "^(?:5[1-5]\\d{2}|2(?:2[2-9]\\d|[3-6]\\d\\d|7[01]\\d|720))\\d{12}$", //[cite: 1]
+			amex: "^3[47]\\d{13}$", //[cite: 1]
+			discover: "^6(?:011|5\\d{2}|4[4-9]\\d)\\d{12,15}$", //[cite: 1]
+			cvv: "^\\d{3,4}$", //[cite: 1]
+			cardExpiry: "^(?:0[1-9]|1[0-2])/(?:\\d{2}|\\d{4})$", //[cite: 1]
+			iban: "^[A-Z]{2}\\d{2}[A-Z0-9]{11,30}$", //[cite: 1]
+			usSSN: "^(?!000|666|9\\d\\d)\\d{3}-(?!00)\\d{2}-(?!0000)\\d{4}$", //[cite: 1]
+			isbn13: "^97[89]\\d{10}$", //[cite: 1]
+			ean13: "^\\d{13}$", //[cite: 1]
+			bitcoinAddress: "^(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-z02-9]{11,71})$", //[cite: 1]
+			ethereumAddress: "^0x[a-fA-F0-9]{40}$", //[cite: 1]
+
+			// Encodings and Tokens
+			base64: "^(?=.)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$", //[cite: 1]
+			base64Url: "^(?=.)(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$", //[cite: 1]
+			jwt: "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*$", //[cite: 1]
+
+			// Files, Paths, and Dev
+			unixPermissions: "^[0-7]{3,4}$", //[cite: 1]
+			envVarAssignment: "^[A-Za-z_][A-Za-z0-9_]*=.*$", //[cite: 1]
+			npmPackage: "^(?:@[a-z0-9-*~][a-z0-9-*._~]*/)?[a-z0-9-~][a-z0-9-._~]*$", //[cite: 1]
+			dockerImage: "^(?:[a-z0-9.-]+(?::\\d+)?/)?[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(?:@sha256:[a-f0-9]{64})?$", //[cite: 1]
+
+			// Unanchored Fragments
+			whitespace: "\\s+", //[cite: 1]
+			word: "\\w+", //[cite: 1]
+			ansi: "\\x1b\\[[0-9;?]*[A-Za-z]", //[cite: 1]
+			lineBreak: "\\r\\n|\\r|\\n" //[cite: 1]
+		});
+
+		// ---- network and ports ----
+		this.set("A_Network", {
+			loopback: "127.0.0.1",
+			loopbackV6: "::1",
+			localhost: "localhost",
+			anyAddress: "0.0.0.0",
+			broadcastAddress: "255.255.255.255",
+			ipAddress: ext4[0] ? ext4[0].address : "",
+			ipAddress2: ext4[1] ? ext4[1].address : "",
+			ipAddress3: ext4[2] ? ext4[2].address : "",
+			ipAddress4: ext4[3] ? ext4[3].address : "",
+			ipv6Address: ext6[0] ? ext6[0].address : "",
+			subnetMask: ext4[0] ? ext4[0].netmask : "",
+			macAddress: macs[0] ? macs[0].mac : "",
+			hasNetwork: bool(ext4.length || ext6.length),
+			interfaceCount: nets.length,
+			interfaceNames: Object.keys(safe(() => os.networkInterfaces(), {})),
+		});
+
+		this.set("A_Ports", {
+			ftpData: 20,
+			ftp: 21,
+			ssh: 22,
+			telnet: 23,
+			smtp: 25,
+			dns: 53,
+			dhcpServer: 67,
+			dhcpClient: 68,
+			tftp: 69,
+			http: 80,
+			pop3: 110,
+			ntp: 123,
+			imap: 143,
+			snmp: 161,
+			ldap: 389,
+			https: 443,
+			smb: 445,
+			smtps: 465,
+			syslog: 514,
+			submission: 587,
+			ldaps: 636,
+			imaps: 993,
+			pop3s: 995,
+			mssql: 1433,
+			oracle: 1521,
+			mqtt: 1883,
+			nfs: 2049,
+			mysql: 3306,
+			rdp: 3389,
+			postgres: 5432,
+			vnc: 5900,
+			redis: 6379,
+			httpAlt: 8080,
+			httpsAlt: 8443,
+			elasticsearch: 9200,
+			memcached: 11211,
+			mongo: 27017,
+			max: 65535,
+			privilegedMax: 1023,
+			ephemeralMin: 49152,
+		});
+
+		// ---- lookup tables (arrays and maps, read them like A_MimeTypes["png"]) ----
+		this.set("A_MonthNames", monthNames);
+		this.set("A_MonthNamesShort", monthNames.map(m => m.slice(0, 3)));
+		this.set("A_DayNames", dayNames);
+		this.set("A_DayNamesShort", dayNames.map(d => d.slice(0, 3)));
+		this.set("A_DaysInMonthTable", [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+		this.set("A_Primes", [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229]);
+		this.set("A_Powers2", Array.from({ length: 32 }, (_, i) => Math.pow(2, i)));
+		this.set("A_Fibonacci", (() => { const f = [0, 1]; while (f.length < 40) { f.push(f[f.length - 1] + f[f.length - 2]); } return f; })());
+		this.set("A_Factorials", (() => { const f = [1]; for (let i = 1; i <= 18; i++) { f.push(f[i - 1] * i); } return f; })());
+		this.set("A_RomanNumerals", { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 });
+		this.set("A_SIPrefixes", { yotta: 1e24, zetta: 1e21, exa: 1e18, peta: 1e15, tera: 1e12, giga: 1e9, mega: 1e6, kilo: 1e3, hecto: 1e2, deca: 1e1, deci: 1e-1, centi: 1e-2, milli: 1e-3, micro: 1e-6, nano: 1e-9, pico: 1e-12, femto: 1e-15, atto: 1e-18, zepto: 1e-21, yocto: 1e-24 });
+		this.set("A_PaperSizesMm", { a3: [297, 420], a4: [210, 297], a5: [148, 210], a6: [105, 148], letter: [215.9, 279.4], legal: [215.9, 355.6], tabloid: [279.4, 431.8] });
+		this.set("A_HttpStatus", { ...http.STATUS_CODES });
+		this.set("A_HttpMethods", [...http.METHODS]);
+		this.set("A_MimeTypes", { txt: "text/plain", html: "text/html", htm: "text/html", css: "text/css", js: "text/javascript", mjs: "text/javascript", json: "application/json", xml: "application/xml", csv: "text/csv", md: "text/markdown", yaml: "application/yaml", yml: "application/yaml", pdf: "application/pdf", zip: "application/zip", gz: "application/gzip", tar: "application/x-tar", "7z": "application/x-7z-compressed", rar: "application/vnd.rar", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", svg: "image/svg+xml", webp: "image/webp", ico: "image/x-icon", bmp: "image/bmp", tiff: "image/tiff", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", avi: "video/x-msvideo", mkv: "video/x-matroska", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf", wasm: "application/wasm", doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+		this.set("A_ExtImages", ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tif", "tiff", "heic", "avif"]);
+		this.set("A_ExtAudio", ["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "aiff"]);
+		this.set("A_ExtVideo", ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg"]);
+		this.set("A_ExtArchives", ["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "zst"]);
+		this.set("A_ExtDocuments", ["txt", "md", "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt", "pptx", "odp", "csv"]);
+		this.set("A_ExtCode", ["js", "mjs", "ts", "jsx", "tsx", "py", "rb", "go", "rs", "c", "h", "cpp", "hpp", "cs", "java", "kt", "swift", "php", "lua", "sh", "ps1", "bat", "html", "css", "json", "yaml", "yml", "toml", "xml", "sql", "yote"]);
+		this.set("A_Signals", { ...os.constants.signals });
+		this.set("A_Errno", { ...os.constants.errno });
+		this.set("A_Priority", { ...os.constants.priority });
+		this.set("A_FsConstants", { ...fs.constants });
+		this.set("A_ExitCodes", { success: 0, generalError: 1, misuse: 2, cannotExecute: 126, notFound: 127, invalidExit: 128, sigint: 130, sigkill: 137, sigterm: 143 });
+
+		// ---- colors, one map so it doesn't flood the scope ----
+		this.set("A_Colors", { black: "#000000", silver: "#c0c0c0", gray: "#808080", white: "#ffffff", maroon: "#800000", red: "#ff0000", purple: "#800080", fuchsia: "#ff00ff", green: "#008000", lime: "#00ff00", olive: "#808000", yellow: "#ffff00", navy: "#000080", blue: "#0000ff", teal: "#008080", aqua: "#00ffff", orange: "#ffa500" });
+		this.set("A_AnsiFg", { black: "\x1b[30m", red: "\x1b[31m", green: "\x1b[32m", yellow: "\x1b[33m", blue: "\x1b[34m", magenta: "\x1b[35m", cyan: "\x1b[36m", white: "\x1b[37m", brightBlack: "\x1b[90m", brightRed: "\x1b[91m", brightGreen: "\x1b[92m", brightYellow: "\x1b[93m", brightBlue: "\x1b[94m", brightMagenta: "\x1b[95m", brightCyan: "\x1b[96m", brightWhite: "\x1b[97m", default: "\x1b[39m" });
+		this.set("A_AnsiBg", { black: "\x1b[40m", red: "\x1b[41m", green: "\x1b[42m", yellow: "\x1b[43m", blue: "\x1b[44m", magenta: "\x1b[45m", cyan: "\x1b[46m", white: "\x1b[47m", brightBlack: "\x1b[100m", brightRed: "\x1b[101m", brightGreen: "\x1b[102m", brightYellow: "\x1b[103m", brightBlue: "\x1b[104m", brightMagenta: "\x1b[105m", brightCyan: "\x1b[106m", brightWhite: "\x1b[107m", default: "\x1b[49m" });
+
 		this.returning = false;
 		this.breaking = this.continuing = false;
 		return await this.execute_ast(ast.statements);;
 	}
+
+
 	async execute_ast(ast) {
-		// Skip early exit if ast.type is 4
+		// skip early exit if ast.type is 4
 		if (ast.type === 4) return;
 
 		if (Array.isArray(ast)) {
 			const results = [];
 			for (const element of ast) {
 				results.push(await this.ASS(element));
-				// a return anywhere in a block kills the rest of that block and
-				// carries its value up to whoever called the function. break and
-				// continue do the same up to the nearest loop, which clears them
+				// return kills the rest of the block and carries its value up. break and continue do the same up to the nearest loop
 				if (this.returning || this.breaking || this.continuing) {
 					break;
 				}
@@ -3088,10 +3922,8 @@ class ASTExecutor {
 		// same truthiness as if, so !x is always the opposite of if (x)
 		return !(await this.execute_ast(ast.expression));
 	}
-	// = ignores case, == doesn't, === also won't turn a numeric string into a
-	// number ("1" === 1 is false). literals still remember whether they were
-	// quoted, variables don't, so a numeric-looking string in one is "unknown"
-	// and lines up with either kind
+	// = ignores case, == doesn't, === won't turn "1" into 1. variables don't remember if they were quoted,
+	// so a numeric string in one matches either kind
 	strictkind(node, value) {
 		if (node.type === ItemType.LITERAL) {
 			return typeof node.value === 'string' ? 'string' : typeof node.value;
@@ -3108,7 +3940,7 @@ class ASTExecutor {
 			const lk = this.strictkind(ast.left, l);
 			const rk = this.strictkind(ast.right, r);
 			if (lk === 'unknown' || rk === 'unknown') {
-				// numeric on the other side (or unknown too) compares as numbers, a string compares as text
+				// unknown side compares as a number against numbers, as text against a string
 				const other = lk === 'unknown' ? rk : lk;
 				return (other === 'string') ? String(l) === String(r) : (other === 'unknown' || other === 'number') && this.numeric(l) === this.numeric(r);
 			}
@@ -3163,15 +3995,14 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		let retval = "";
 		let name = "INTERNAL_" + ast.name;
-		let correct_case_key = this.methods[name.toLowerCase()]; // was doing a full Object.getOwnPropertyNames(...).find() scan over every prototype method on every single function call
+		let correct_case_key = this.methods[name.toLowerCase()];
 		if (correct_case_key) {
 			this.print(correct_case_key)
 			retval = await this[correct_case_key](ast.params);
 		} else {
 			//console.log(this.functions[ast.name].params)
 			let params = await this.execute_ast(ast.params)
-			// the body gets its own coyote. no push/pop, no stack to keep
-			// straight - when this returns the whole scope is just garbage
+			// the body gets its own scope, garbage when it returns
 			const inner = this.spawn();
 			if (this.functions[ast.name] && this.functions[ast.name].params) {
 			for (const [index, param] of this.functions[ast.name].params.entries()) {
@@ -3185,9 +4016,7 @@ class ASTExecutor {
 				inner.set(paramName, paramValue);
 			}
 				const body = await inner.execute_ast(this.functions[ast.name].statements)
-				// an explicit return wins. with no return at all we fall back to
-				// the old behaviour of handing back the first statement that
-				// actually produced something
+				// explicit return wins, otherwise the first statement that produced something
 				retval = inner.returning ? this.Core(inner.returned) : this.Core(this.removeUndefined(body)[0])
 			} else {
 				retval = await this.native_call(ast)
@@ -3197,8 +4026,7 @@ class ASTExecutor {
 	}	
 	async function_definition(ast) { // 4
 	}
-	// both already did their real work on the pre-scan pass in run()/
-	// assert_code() - same as function_definition just above
+	// already handled on the pre-scan
 	async directive(ast) { // 38
 	}
 	async class_definition(ast) { // 39
@@ -3209,9 +4037,7 @@ class ASTExecutor {
 			throw new Error(`INTERNAL_new: no class named ${ast.classname}`);
 		}
 		let params = await this.execute_ast(ast.params);
-		// an instance is just its own persistent scope (so fields set in one
-		// method are still there for the next) plus a tag saying which class
-		// it belongs to, so method_call() knows where to look up methods
+		// an instance is a persistent scope plus its class, so method_call() knows where to look
 		const instance = this.spawn();
 		const init = classDef.methods["__init"];
 		if (init) {
@@ -3242,8 +4068,7 @@ class ASTExecutor {
 		const breakCheck = async () => {
 			await this.execute_ast(ast.statements);
 			// continue only ever ends the current pass and break ends the
-			// loop, so both are spent here. a return inside a loop has to
-			// take the loop with it
+			// continue ends the pass, break ends the loop, both are spent here. return takes the loop with it
 			const broke = this.breaking;
 			this.breaking = this.continuing = false;
 			return this.returning || broke;
@@ -3286,10 +4111,7 @@ class ASTExecutor {
 		return await this.get(ast.name)
 	}
 	async deref(ast) { // 37
-		// target's own value has already been read once by execute_ast below
-		// (a plain variable read if it's %name%, whatever the expression
-		// works out to if it's %(expr)%) - this.get() on top of that is the
-		// second lookup, using that value as the name to go find
+		// the target was already read once, this.get() is the second lookup
 		let name = await this.execute_ast(ast.target)
 		return await this.get(String(name))
 	}
@@ -3297,14 +4119,12 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		return String(ast.value).replace(/^"|"$/g, '');
 	}
-	// a value that's already been resolved, wrapped back up as a tiny AST
-	// node so it can be dropped into a params array without re-executing
-	// whatever produced it a second time (method_call uses this)
+	// an already resolved value wrapped as a node so it isn't run again (method_call uses this)
 	async value(ast) { // 36
 		return ast.value;
 	}
 	async assignment(ast) {
-		const leftType = await this.detype(ast.left.type); // Store the result of detype
+		const leftType = await this.detype(ast.left.type);
 
 		if (leftType === "MEMBER_ACCESS") {
 			const target = await this.chainpath(ast.left);
@@ -3312,8 +4132,7 @@ class ASTExecutor {
 			if (target.name !== null) {
 				this.set(target.name, value, target.path);
 			}
-			// used inline (eg as a function param) the assignment needs to
-			// hand back what it just set, same as the var would read back
+			// as an inline param it hands back what it set
 			return value;
 		} else if (leftType === "VARIABLE") {
 			const value = await this.execute_ast(ast.right);
@@ -3339,13 +4158,10 @@ class ASTExecutor {
 	}
 	async array(ast) { // 28
 		//this.print(`${this.getFunctionName()}`);
-		// Check if the AST contains 'items' and ensure it's an array
 		if (Array.isArray(ast.items)) {
-			// Use Promise.all to ensure all items are processed asynchronously
 			const result = await Promise.all(ast.items.map(item => this.execute_ast(item)));
 			return result;
 		}
-		// If there are no 'items', return the original AST
 		return ast;
 	}
 	async member_access(ast) { // 29
@@ -3353,23 +4169,18 @@ class ASTExecutor {
 		if (ast.value.name !== undefined) {
 			return await this.get(ast.value.name, member);
 		}
-		// chained access like x.a.b - the left side isn't a plain var so work
-		// it out first and then step into whatever came back
+		// x.a.b - work out the left side first, then step in
 		return this.step(await this.execute_ast(ast.value), member);
 	}
 	async method_call(ast) {
-		// evaluated exactly once, whatever it is - re-evaluating ast.func.value
-		// a second time down in the fallback branch would double any side
-		// effects it has (e.g. if it's itself a function call)
+		// re-evaluating would double any side effects, so it runs once
 		const target = await this.execute_ast(ast.func.value);
 		const methodName = await this.execute_ast(ast.func.member);
 		if (target && typeof target === 'object' && target.__instance__) {
 			const classDef = this.classes[String(target.__class__).toLowerCase()];
 			const method = classDef && classDef.methods[String(methodName).toLowerCase()];
 			if (method) {
-				// runs on the instance's own persistent scope, same as
-				// __init did, so fields set by one method call are still
-				// there the next time any method on this instance runs
+				// runs on the instance's own scope, so fields stay between calls
 				const instance = target.__instance__;
 				let params = await this.execute_ast(ast.params);
 				if (method.params) {
@@ -3388,18 +4199,14 @@ class ASTExecutor {
 				instance.returned = undefined;
 				return retval;
 			}
-			// not one of the class's own methods - falls through to the
-			// normal "global function, object as the first arg" behavior
-			// below, same as any other value (this is what lets something
-			// like Var.func(x).round() reach the built-in Round() for
-			// .round() once func()'s own return value isn't a class instance)
+			// not one of the class's methods, falls through to the global function with the object as first arg
 		}
 		return this.execute_ast({ type: 6, name: methodName, params: [{ type: ItemType.VALUE, value: target }, ...ast.params] })
 	}
 	async concat(ast) { // 16
 		//this.print(`${this.getFunctionName()}`);
-		let left = String(await this.execute_ast(ast.left)).replace(/^"|"$/g, ''); // Convert to string and strip double quotes from left
-		let right = String(await this.execute_ast(ast.right)).replace(/^"|"$/g, ''); // Convert to string and strip double quotes from right
+		let left = String(await this.execute_ast(ast.left)).replace(/^"|"$/g, '');
+		let right = String(await this.execute_ast(ast.right)).replace(/^"|"$/g, '');
 
 		return (left + right)
 	}
@@ -3428,7 +4235,7 @@ class ASTExecutor {
 		if (!isNaN(numLeft) && isFinite(numLeft) && !isNaN(numRight) && isFinite(numRight)) {
 			return numLeft * numRight;
 		} else if (typeof left === "string" && !isNaN(numRight) && isFinite(numRight)) {
-			return left.repeat(Math.max(0, Math.floor(numRight))); // Ensures non-negative integer repeat
+			return left.repeat(Math.max(0, Math.floor(numRight)));
 		} else {
 			//console.log(left)
 			//console.log(right)
@@ -3459,8 +4266,7 @@ class ASTExecutor {
 		return (await this.toFloat(left) / await this.toFloat(right))
 	}
 	async VALUE(ast) { // 36
-		// a value that has already been worked out - it exists so a var can
-		// park a finished result in the tree next to unfinished ones
+		// an already worked out result, lets a var park it in the tree
 		return ast.value
 	}
 	async detype(type) {
@@ -3481,8 +4287,7 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
 		let out = value[0];
-		// print(array) was dumping raw node inspect output ("[ '1', '2' ]")
-		// instead of just laying the values out like everything else does
+		// arrays print joined, not as raw node output
 		if (Array.isArray(out)) {
 			out = out.join(",");
 		}
@@ -3495,23 +4300,20 @@ class ASTExecutor {
 	async INTERNAL_Cell(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		const values = await this.execute_ast(ast);
-		const char = values[0]; // The character to set
-		const x = values[1];    // X position
-		const y = values[2];    // Y position
+		const char = values[0];
+		const x = values[1];
+		const y = values[2];
 
-		// Move the cursor to the specified position
 		process.stdout.cursorTo(x, y);
 
-		// Write the character
 		process.stdout.write(char);
 	}
 	async INTERNAL_Cursor(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		const values = await this.execute_ast(ast);
-		const x = values[0]; // X position
-		const y = values[1]; // Y position
+		const x = values[0];
+		const y = values[1];
 
-		// Move the cursor to the specified position
 		process.stdout.cursorTo(x, y);
 	}
 	async INTERNAL_clear(ast) {
@@ -3562,10 +4364,7 @@ class ASTExecutor {
 	async INTERNAL_Cos(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
-		// Core() floors non-integer numbers via digest() - fine for literals
-		// (which arrive here as strings and take a different path through
-		// Core), but it silently zeroes out any computed value like `x / 4`.
-		// Skip Core() when we already have a real number, same as Sin does.
+		// Core() floors non-integers, which zeroes x / 4. skipped for real numbers like Sin
 		let rawValue = typeof value[0] === "number" ? value[0] : this.Core(value[0]);
 		return Math.cos(rawValue);
 	}
@@ -3574,9 +4373,9 @@ class ASTExecutor {
 	}
 	async INTERNAL_Tan(ast) {
 		let value = await this.execute_ast(ast);
-		let degrees = value[1] === "D";  // Check if input is in degrees
+		let degrees = value[1] === "D";
 		let rawValue = typeof value[0] === "number" ? value[0] : this.Core(value[0]);
-		let radians = degrees ? rawValue * (Math.PI / 180) : rawValue;  // Convert if in degrees
+		let radians = degrees ? rawValue * (Math.PI / 180) : rawValue;
 		return Math.tan(radians);
 	}
 	async INTERNAL_Ceil(ast) {
@@ -3587,9 +4386,7 @@ class ASTExecutor {
 	async INTERNAL_Cotan(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
-		// Unlike Tan/Sin/Cos, Cotan has always taken degrees with no radians
-		// option - Cotan(45) === 1 already relies on that. It never called
-		// Core() on the way in, so it never had the flooring bug either.
+		// Cotan has always taken degrees only
 		let radians = value[0] * (Math.PI / 180);
 		let result = 1 / Math.tan(radians);
 		let tolerance = 1e-10;
@@ -3602,14 +4399,11 @@ class ASTExecutor {
 		//this.print(`${this.getFunctionName()}`);
 		let value = await this.execute_ast(ast);
 		if (value.length === 0) {
-			// If no arguments provided, default range is 1 to 100
 			return Math.random() * 100 + 1;
 		} else if (value.length === 1) {
-			// If one argument provided, range is from 0 to the argument
 			let max = value[0];
 			return Math.random() * max;
 		} else if (value.length === 2) {
-			// If two arguments provided, range is between the arguments (order-independent)
 			let bound1 = value[0];
 			let bound2 = value[1];
 			let min = Math.min(bound1, bound2);
@@ -3628,10 +4422,7 @@ class ASTExecutor {
 	async INTERNAL_Substr(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		// was running the string through Core() same as start/length -
-		// fine until the string itself was all digits ("48"), Core()
-		// coerced it straight to a number and .substring wasn't a thing
-		// anymore. it just needs to stay a string.
+		// no Core() here, an all-digit string ("48") would turn into a number
 		let string = String(values[0])
 		let start =  this.Core(values[1])
 		let length = values.length >= 3 ?  this.Core(values[2]) : string.length - start;
@@ -3657,7 +4448,7 @@ class ASTExecutor {
 		let values = await this.execute_ast(ast);
 		let string1 = values[0];
 		let string2 = values[1];
-		return string1.indexOf(string2) + 1; // Adding 1 to convert from zero-based index to one-based index
+		return string1.indexOf(string2) + 1;
 	}
 	async INTERNAL_Strepl(ast) {
 		//this.print(`${this.getFunctionName()}`);
@@ -3693,7 +4484,6 @@ class ASTExecutor {
 		return Math.sqrt(number);
 	}
 async INTERNAL_Rem(ast) {
-    // Get the values from the AST
     let values = await this.execute_ast(ast);
     let string = values[0];
     let regexPattern = values[1];
@@ -3703,19 +4493,17 @@ async INTERNAL_Rem(ast) {
         throw new Error("Invalid arguments. Expected a string, a regex pattern, and an optional number of matches.");
     }
 
-    // Create a regex with the global flag only if multiple matches are needed
     let regex = numMatches === 1 ? new RegExp(regexPattern) : new RegExp(regexPattern, "g");
 
     let matches = [];
     let matchCount = 0;
 
-    // Use regex.exec() to find matches up to the specified number
     let match;
     while ((match = regex.exec(string)) !== null) {
-        matches.push({ match: match[0], pos: match.index }); // Store match and position
+        matches.push({ match: match[0], pos: match.index });
         matchCount++;
         if (numMatches > 0 && matchCount >= numMatches) {
-            break; // Stop if we've reached the desired number of matches
+            break;
         }
     }
 
@@ -3727,28 +4515,22 @@ async INTERNAL_Rem(ast) {
 		let string = values[0];
 		let regex = values[1];
 		let replace = values[2];
-		// 4th param (optional) = Recursive: falsy/absent replaces only the
-		// first match (Repl("Hello","l","L") -> "HeLlo"); truthy replaces
-		// every match, same as adding the 'g' flag by hand
-		// (Repl("Hello","l","L",1) -> "HeLLo")
+		// 4th param (Recursive): falsy replaces the first match only, truthy replaces all
 		let recursive = values[3];
 		return string.replace(new RegExp(regex, recursive ? 'g' : ''), replace);
 	}
 	async INTERNAL_Grep(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
-		// Docs: "returns lines containing P from T" - a substring/pattern
-		// search, not a whole-word match, so no \b boundaries here.
+		// substring/pattern match, no \b boundaries
 		let pattern = new RegExp(values[0], 'g');
 		let text = values[1];
-		// Was splitting on the literal two characters `n instead of a real
-		// newline, so multi-line text was never actually split into lines.
+		// split on real newlines
 		let lines = text.split('\n');
 		let matchedLines = lines.filter(line => line.match(pattern));
 		return matchedLines;
 	}
 	async INTERNAL_Trunc(ast) {
-		// Get the values from the AST
 		let values = await this.execute_ast(ast);
 		let number = parseFloat(values[0]);
 		let decimalPlaces = parseInt(values[1]);
@@ -3811,9 +4593,9 @@ async INTERNAL_Rem(ast) {
 		for (let entry of entries) {
 			let fullPath = path.join(directory, entry.name);
 			if (entry.isDirectory() && recursive) {
-				files.push(...await this.listFiles(fullPath, true));  // Recursively add files
+				files.push(...await this.listFiles(fullPath, true));
 			} else if (!entry.isDirectory()) {
-				files.push(fullPath);  // Add file path to the list
+				files.push(fullPath);
 			}
 		}
 
@@ -3824,18 +4606,16 @@ async INTERNAL_Rem(ast) {
 		const tree = {};
 
 		filePaths.forEach(filePath => {
-			const parts = filePath.split(path.sep); // Split by the platform's separator (e.g., '\\' on Windows)
+			const parts = filePath.split(path.sep);
 			let current = tree;
 
 			parts.forEach((part, index) => {
 				if (index === parts.length - 1) {
-					// For the last part (file), push the file name to an array
 					if (!current.files) {
 						current.files = [];
 					}
 					current.files.push(part);
 				} else {
-					// For directories, create a new object if it doesn't exist
 					if (!current[part]) {
 						current[part] = {};
 					}
@@ -3850,39 +4630,33 @@ async INTERNAL_Rem(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let values = await this.execute_ast(ast);
 		let text = values[0];
-		// Literals always arrive as strings in this language, but switch/case
-		// uses strict equality, so "1" would never match `case 1` below -
-		// that's what "not working properly" meant. parseInt fixes it.
-		let justifyType = parseInt(values[1]); // 1 for Left, 2 for Center, 3 for Right
+		// literals arrive as strings and switch is strict, hence parseInt
+		let justifyType = parseInt(values[1]); // 1 left, 2 center, 3 right
 		let width = values[2];
 
-		// Split text into lines
 		let lines = text.split('\n');
 
-		// Determine the maximum line length (to adjust the width if any line is longer)
 		lines.forEach(line => {
 			if (line.length > width) {
 				width = line.length;
 			}
 		});
 
-		// Function to justify a single line
 		function justifyLine(line, justifyType, width) {
 			let padding;
 			switch (justifyType) {
-				case 1: // Left Justified
+				case 1:
 					return line.padEnd(width);
-				case 2: // Center Justified
+				case 2:
 					padding = Math.floor((width - line.length) / 2);
 					return ' '.repeat(padding) + line + ' '.repeat(width - line.length - padding);
-				case 3: // Right Justified
+				case 3:
 					return line.padStart(width);
 				default:
 					return line;
 			}
 		}
 
-		// Justify each line according to the specified justifyType
 		let justifiedText = lines.map(line => justifyLine(line, justifyType, width)).join('\n');
 
 		return justifiedText;
@@ -3901,17 +4675,17 @@ async INTERNAL_Rem(ast) {
 		let N = values[1];
 
 		switch (N) {
-			case 1: // Light cleaning
-				// Remove extra spaces between words but keep single spaces
+			case 1:
+				// collapse repeated spaces
 				return string.replace(/\s+/g, ' ').trim();
 			
-			case 2: // Medium cleaning
-				// Remove extra spaces between words and trim the start and end of the string
-				// Additional: Remove tabs and newlines, keeping only single spaces
+			case 2:
+				// collapse spaces, trim the ends
+				// and strip tabs and newlines
 				return string.replace(/\s+/g, ' ').replace(/\t+/g, ' ').replace(/\n+/g, ' ').trim();
 			
-			case 3: // Heavy cleaning
-				// Remove all types of whitespace and invisible characters
+			case 3:
+				// strip all whitespace and invisible characters
 				return string.replace(/[\s\uFEFF\xA0]+/g, '');
 			
 			default:
@@ -3970,13 +4744,10 @@ async INTERNAL_Rem(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		console.log(chalk.gray("Tree:"))
 		const printTree = (obj, indent = '', last = true, arr=false) => {
-			// Determine the prefix for the current node
 			const prefix = indent + (last ? chalk.gray('└─ ') : chalk.gray('└─ '));
 
 			if (Array.isArray(obj)) {
-				// Print each item in the array
 				obj.forEach((item, index) => {
-					// Use different prefixes and indentation for the last item
 					console.log(indent + (index === obj.length - 1 ? chalk.gray('└─ ') : chalk.gray('├─ ')) + chalk.cyan(`[${index}]`));
 					printTree(item, indent + (index === obj.length - 1 ? '    ' : chalk.gray('│   ')), index === obj.length - 1);
 				});
@@ -4011,22 +4782,18 @@ async INTERNAL_Rem(ast) {
 			//		}
 			//	});
 			} else if (typeof obj === 'object' && obj !== null) {
-				// Print each key-value pair in the object
 				const keys = Object.keys(obj);
 				keys.forEach((key, index) => {
-					// Use different prefixes and indentation for the last key
 					console.log(indent + (index === keys.length - 1 ? chalk.gray('└─ ') : chalk.gray('├─ ')) + chalk.cyan(key));
 					printTree(obj[key], indent + (index === keys.length - 1 ? '   ' : chalk.gray('│  ')), index === keys.length - 1);
 				});
 			} else {
-				// Print the value
 				if (!arr)  {
 				console.log(prefix + chalk.yellow(JSON.stringify(obj)));
 				}
 			}
 		};
 
-		// Extract the JSON object from the AST
 		let jsonObject = await this.execute_ast(ast);
 		printTree(jsonObject[0]);
 
@@ -4049,7 +4816,6 @@ async INTERNAL_Rem(ast) {
 		let number = values[0];
 		let percent = values[1];
 
-		// Calculate the result of applying the percentage to the number
 		let result = (number * percent) / 100;
 		return result;
 	}
@@ -4059,7 +4825,6 @@ async INTERNAL_Rem(ast) {
 		let oldValue = values[0];
 		let newValue = values[1];
 
-		// Calculate percentage change
 		let change = ((newValue - oldValue) / oldValue) * 100;
 		return change;
 	}
@@ -4069,7 +4834,6 @@ async INTERNAL_Rem(ast) {
 		let number = Number(values[0]);
 		let percent = Number(values[1]);
 
-		// Calculate the result by adding the percent
 		return number + (number * percent / 100);
 	}	
 	async INTERNAL_subPc(ast) {
@@ -4078,12 +4842,11 @@ async INTERNAL_Rem(ast) {
 		let number = values[0];
 		let percent = values[1];
 
-		// Calculate the result by subtracting the percent
 		return number - (number * percent / 100);
 	}
 	async INTERNAL_input(ast) {
 		//this.print(`${this.getFunctionName()}`);
-		let promptText = await this.execute_ast(ast)[0] || 'Enter input: '; // Optional prompt from AST
+		let promptText = await this.execute_ast(ast)[0] || 'Enter input: ';
 		let userInput = readlineSync.question(promptText);
 		return userInput;
 	}
@@ -4106,20 +4869,16 @@ async INTERNAL_Rem(ast) {
 		}
 	}
 	async INTERNAL_MaxIndex(ast) {
-		// Get the value from the AST and check if it's an array or string
 		let value = await this.execute_ast(ast);
 		if (typeof value[0] === 'string') {
-			// If it's a string, split it into an array and find the max index
 			return value[0].split('').length - 1;
 		} else if (Array.isArray(value[0])) {
-			// If it's an array, return the max index
 			return value[0].length - 1;
 		} else {
 			throw new Error("INTERNAL_MaxIndex: Expected a string or an array");
 		}
 	}
 	async INTERNAL_Slice(ast) {
-		// Slice an array or string
 		let values = await this.execute_ast(ast);
 		let source = values[0];
 		let start = values[1];
@@ -4134,7 +4893,6 @@ async INTERNAL_Rem(ast) {
 		}
 	}
 	async INTERNAL_Join(ast) {
-		// Join elements of an array into a string
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 		let separator = values.length >= 2 ? values[1] : '';
@@ -4146,7 +4904,6 @@ async INTERNAL_Rem(ast) {
 		}
 	}
 	async INTERNAL_Flatten(ast) {
-		// Flatten a nested array
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 
@@ -4157,24 +4914,21 @@ async INTERNAL_Rem(ast) {
 		}
 	}
 	async INTERNAL_Push(ast) {
-		// Get the value from the AST
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 		let element = values[1];
 
 		if (Array.isArray(array)) {
-			// If it's an array, push the element to the array
 			array.push(element);
 			return array;
 		} else if (typeof array === 'string') {
-			// If it's a string, append the element (as a string) to the string
 			return array + String(element);
 		} else {
 			throw new Error("INTERNAL_Push: Expected an array or string as the first argument");
 		}
 	}
 	async INTERNAL_Mod(ast) {
-		// fills a real gap - there's no % operator anywhere in the language
+		// Mod, in place of a % operator
 		let values = await this.execute_ast(ast);
 		let a = this.numeric(values[0]);
 		let b = this.numeric(values[1]);
@@ -4206,8 +4960,7 @@ async INTERNAL_Rem(ast) {
 		return array.findIndex(v => String(v) === String(values[1]));
 	}
 	async INTERNAL_Pop(ast) {
-		// mutates in place and returns the removed element, mirroring how
-		// every other language's pop() works (Push instead returns the array)
+		// mutates and returns the removed element (Push returns the array)
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 		if (!Array.isArray(array)) {
@@ -4216,7 +4969,7 @@ async INTERNAL_Rem(ast) {
 		return array.pop();
 	}
 	async INTERNAL_Shift(ast) {
-		// same as Pop but off the front - mutates in place, returns the element
+		// like Pop but off the front
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 		if (!Array.isArray(array)) {
@@ -4225,7 +4978,7 @@ async INTERNAL_Rem(ast) {
 		return array.shift();
 	}
 	async INTERNAL_Unshift(ast) {
-		// prepends, mutates in place, returns the array - same shape as Push
+		// prepends, mutates and returns the array like Push
 		let values = await this.execute_ast(ast);
 		let array = values[0];
 		let element = values[1];
@@ -4309,30 +5062,24 @@ async INTERNAL_Rem(ast) {
 	async INTERNAL_IsEmpty(ast) {
 		let values = await this.execute_ast(ast);
 		let value = values[0];
-		// no unbox()/Core() here on purpose - Core("") coerces the empty
-		// string to the number 0 (since Number("") === 0), which would
-		// make String(value).length come back as 1 ("0") instead of 0
+		// no unbox()/Core() here, Core("") gives 0 and the length would come back as 1
 		if (Array.isArray(value)) return value.length === 0 ? 1 : 0;
 		if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0 ? 1 : 0;
 		return String(value).length === 0 ? 1 : 0;
 	}
 	async INTERNAL_Purge(ast) {
-		// Get the value from the AST
 		let value = await this.execute_ast(ast);
 		
-		// Define the purge function inside the async function
 		async function purge(input) {
 			if (Array.isArray(input)) {
-				// If it's an array, filter out empty entries and recursively purge each element
 				return Promise.all(input.filter(item => {
 					if (item === null || item === undefined || item === '' || 
 						(Array.isArray(item) || typeof item === 'object' ? purge(item).then(res => res.length === 0) : false)) {
 						return false;
 					}
 					return true;
-				}).map(async (item) => await purge(item))); // Apply purge recursively on each element
+				}).map(async (item) => await purge(item)));
 			} else if (typeof input === 'object' && input !== null) {
-				// If it's an object, recursively purge each property
 				let purgedObj = {};
 				for (let key in input) {
 					if (input.hasOwnProperty(key)) {
@@ -4346,76 +5093,63 @@ async INTERNAL_Rem(ast) {
 				}
 				return purgedObj;
 			}
-			return input; // Return primitive values as is
+			return input;
 		}
 
 		return await purge(value[0]);
 	}
 async INTERNAL_IsOdd(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
     let number = parseInt(value[0]);
-    return number % 2 !== 0 ? 1 : 0; // Return 1 if odd, 0 if even
+    return number % 2 !== 0 ? 1 : 0;
 }
 
 async INTERNAL_IsEven(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
     let number = parseInt(value[0]);
-    return number % 2 === 0 ? 1 : 0; // Return 1 if even, 0 if odd
+    return number % 2 === 0 ? 1 : 0;
 }
 async INTERNAL_Invert(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
     let number = parseFloat(value[0]);
-    return -number; // Flip the sign of the number
+    return -number;
 }
 async INTERNAL_IsArray(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    return Array.isArray(this.Core(value[0])) ? 1 : 0; // Return 1 if it's an array, 0 otherwise
+    return Array.isArray(this.Core(value[0])) ? 1 : 0;
 }
 
 async INTERNAL_IsObject(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    return (typeof value[0] === 'object' && value[0] !== null && !Array.isArray(value[0])) ? 1 : 0; // Return 1 if it's an object, 0 otherwise
+    return (typeof value[0] === 'object' && value[0] !== null && !Array.isArray(value[0])) ? 1 : 0;
 }
 async INTERNAL_IsString(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    return typeof this.Core(value[0]) === 'string' ? 1 : 0; // Return 1 if it's a string, 0 otherwise
+    return typeof this.Core(value[0]) === 'string' ? 1 : 0;
 }
 
 async INTERNAL_IsNum(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    // isNum() means "is this numeric at all" - integer or float. It used to
-    // require Number.isInteger() on top, which made it really "isInt" in
-    // disguise and meant a perfectly good number like "5.5" reported as 0.
-    // isNaN() coerces the same way Core()'s own string branch does, so this
-    // keeps the existing edge cases (e.g. isNum("") === 1) intact.
-    return !isNaN(value[0]) ? 1 : 0; // Return 1 if it's a number (int or float), 0 otherwise
+    // any number, int or float. isInt is the whole-number one
+    return !isNaN(value[0]) ? 1 : 0;
 }
 async INTERNAL_IsInt(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    // The integer-only check isNum() used to do, now under its own name.
-    return !isNaN(value[0]) && Number.isInteger(parseFloat(value[0])) ? 1 : 0; // Return 1 if it's a whole number, 0 otherwise
+    // whole numbers only
+    return !isNaN(value[0]) && Number.isInteger(parseFloat(value[0])) ? 1 : 0;
 }
 async INTERNAL_Range(ast) {
-    // Get the value(s) from the AST
     let values = await this.execute_ast(ast);
 
     if (values.length === 1) {
-        // Single argument: range(25)
+        // range(25)
         let end = parseInt(values[0]);
         if (isNaN(end)) {
             throw new Error("Invalid argument for range. Expected a number.");
         }
         return Array.from({ length: end + 1 }, (_, i) => i); // [0, 1, ..., end]
     } else if (values.length === 2) {
-        // Two arguments: range(5, 10)
+        // range(5, 10)
         let start = parseInt(values[0]);
         let end = parseInt(values[1]);
         if (isNaN(start) || isNaN(end)) {
@@ -4427,21 +5161,14 @@ async INTERNAL_Range(ast) {
     }
 }
 async INTERNAL_IsFloat(ast) {
-    // Get the value from the AST
     let value = await this.execute_ast(ast);
-    // Core() runs values through digest(), which floors floats on its way
-    // through - fine for most uses, but it means every non-integer would
-    // look like an integer by the time we got to check it. parseFloat()
-    // works directly on both real numbers and numeric strings, so skip Core().
+    // no Core() here, digest() floors floats so everything would look like an int
     let num = parseFloat(value[0]);
-    return !Number.isNaN(num) && !Number.isInteger(num) ? 1 : 0; // Return 1 if it's a float, 0 otherwise
+    return !Number.isNaN(num) && !Number.isInteger(num) ? 1 : 0;
 }
 
-	// ---- natives ---------------------------------------------------------
-	// nothing internal matched and there's no coyote function by that name
-	// either. if whatever sits left of the dot is a real js object carrying a
-	// method of that name then just call it. this is the whole trick behind
-	// Use("os") then os.hostname() - nothing gets registered by hand
+	// ---- natives ----
+	// nothing internal matched: if the left of the dot is a js object with that method, call it (Use("os") then os.hostname())
 	async native_call(ast) {
 		const params = ast.params ? await this.execute_ast(ast.params) : [];
 		const host = params.length ? params[0] : null;
@@ -4459,8 +5186,7 @@ async INTERNAL_IsFloat(ast) {
 		return "";
 	}
 	// case insensitive method lookup, own keys first then up the prototype.
-	// walking the proto is what gives every string and array in coyote the
-	// entire js method set for free
+	// walking the proto gives strings and arrays the whole js method set
 	nativekey(host, name) {
 		const want = String(name).toLowerCase();
 		if (typeof host[name] === 'function') {
@@ -4491,8 +5217,7 @@ async INTERNAL_IsFloat(ast) {
 		let values = await this.execute_ast(ast);
 		let name = String(values[0]).replace(/^"|"$/g, '');
 		let mod = require(name);
-		// park the module under its own name so os.hostname() resolves, and
-		// drop its top level functions in as bare calls while we're here
+		// park the module under its name so os.hostname() resolves, and add its top level functions as bare calls
 		this.root().set(name.split('/').pop(), mod);
 		if (mod && (typeof mod === 'object' || typeof mod === 'function')) {
 			for (const key of Object.keys(mod)) {
@@ -4714,13 +5439,10 @@ async INTERNAL_IsFloat(ast) {
 		return process.env[String(values[0]).replace(/^"|"$/g, '')] || "";
 	}
 	async INTERNAL_Exec(ast) {
-		// hands a string of coyote back to a fresh executor sharing this
-		// scope, so code held in a var can be run on demand
+		// runs a string of coyote in a fresh executor sharing this scope
 		let values = await this.execute_ast(ast);
 		let tree = await this.make_ast(String(values[0]));
-		// borrow this scope but hand back the return flag exactly as it was
-		// found, otherwise a top level return in the string latches on and
-		// every block after it stops dead at its first statement
+		// borrows this scope, hands the flags back as found so a top level return doesn't latch on
 		const mark = this.returning;
 		const loopmark = [this.breaking, this.continuing];
 		this.returning = false;
@@ -4749,9 +5471,7 @@ async INTERNAL_IsFloat(ast) {
 		console.log(this.scope())
 	}
 	async INTERNAL_PrintScript(ast) {
-		// dumps the raw source text of the running script - straight from
-		// the same fileContent the parser was built from. optional 1st
-		// arg is a destination path; omit it to print to console instead
+		// dumps the running script's source, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		if (dest) {
@@ -4766,9 +5486,7 @@ async INTERNAL_IsFloat(ast) {
 		return "";
 	}
 	async INTERNAL_PrintAST(ast) {
-		// dumps the parsed AST for the running script - the same tree
-		// print() run() already shows at startup, plus the full JSON.
-		// optional 1st arg is a destination path; omit it for console
+		// dumps the parsed tree and json, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
@@ -4785,9 +5503,7 @@ async INTERNAL_IsFloat(ast) {
 		return "";
 	}
 	async INTERNAL_DumpRAM(ast) {
-		// snapshot of the node process's own memory (rss/heap/external)
-		// plus the interpreter's live variable stack from this scope on
-		// down. optional 1st arg is a destination path; omit for console
+		// snapshot of node's memory and the variable stack, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		let mem = process.memoryUsage();
@@ -4945,9 +5661,7 @@ async INTERNAL_IsFloat(ast) {
 			])], 3));
 	}
 	async INTERNAL_PrintScript(ast) {
-		// dumps the raw source text of the running script - straight from
-		// the same fileContent the parser was built from. optional 1st
-		// arg is a destination path; omit it to print to console instead
+		// dumps the running script's source, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		if (dest) {
@@ -4962,9 +5676,7 @@ async INTERNAL_IsFloat(ast) {
 		return "";
 	}
 	async INTERNAL_PrintAST(ast) {
-		// dumps the parsed AST for the running script - the same tree
-		// print() run() already shows at startup, plus the full JSON.
-		// optional 1st arg is a destination path; omit it for console
+		// dumps the parsed tree and json, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
@@ -4981,9 +5693,7 @@ async INTERNAL_IsFloat(ast) {
 		return "";
 	}
 	async INTERNAL_DumpRAM(ast) {
-		// snapshot of the node process's own memory (rss/heap/external)
-		// plus the interpreter's live variable stack from this scope on
-		// down. optional 1st arg is a destination path; omit for console
+		// snapshot of node's memory and the variable stack, to a file if given a path
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		let mem = process.memoryUsage();
@@ -5062,7 +5772,6 @@ async INTERNAL_IsFloat(ast) {
 		if (debuglogtier>3) {
 			const error = new Error();
 			const stack = error.stack.split("\n");
-			// Extract the function name from the second line of the stack trace
 			const functionName = stack[2]?.match(/at (\S+)/)?.[1] || "anonymous";
 			return functionName;
 		}
@@ -5085,26 +5794,23 @@ class ErrorHandler {
 
 drawBox(title, content, boxWidth, color) {
   let Hue = color ? chalk[color] : chalk.white;
-  let borderTopLeft = '┌'; 	// Top-left corner
-  let borderTopRight = '┐'; 	// Top-right corner
-  let borderBottomLeft = '└'; // Bottom-left corner
-  let borderBottomRight = '┘'; // Bottom-right corner
-  let borderHorizontal = '─';	 // Horizontal line
-  let borderVertical = '│'; 	// Vertical line
+  let borderTopLeft = '┌';
+  let borderTopRight = '┐';
+  let borderBottomLeft = '└';
+  let borderBottomRight = '┘';
+  let borderHorizontal = '─';
+  let borderVertical = '│';
   let padding = 2;
 
-  // Split content into lines and replace tabs with spaces
   let lines = content.split('\n').map(line => line.replace(/\t/g, '    '));
 
-  // Function to strip chalk escape sequences for width calculation
   function stripChalk(str) {
-    return str.replace(/\x1b\[[0-9;]*m/g, ''); // Remove chalk escape sequences
+    return str.replace(/\x1b\[[0-9;]*m/g, '');
   }
 
-  // Calculate max length of lines ignoring chalk escape sequences
   let maxLength = 0;
   lines.forEach(line => {
-    let strippedLine = stripChalk(line); // Strip chalk for length calculation
+    let strippedLine = stripChalk(line);
     if (strippedLine.length > maxLength) {
       maxLength = strippedLine.length;
     }
@@ -5116,34 +5822,26 @@ drawBox(title, content, boxWidth, color) {
     }
   });
 
-  // Add some padding for the box width
-  maxLength = maxLength + 6;  // You can adjust this value as needed
-  maxLengthRaw = maxLengthRaw + 6;  // You can adjust this value as needed
+  maxLength = maxLength + 6;
+  maxLengthRaw = maxLengthRaw + 6;
   let contentWidth = maxLength + padding * 2 - 2;
 
-  // Title line (adjust width to fit the content)
   const titleLine = `${borderTopLeft}─${title} ${borderHorizontal.repeat(contentWidth - title.length - 3)}${borderTopRight}`;
 
-  // Padded content (apply chalk to the content, but calculate padding based on raw length)
   const paddedContent = lines.map(line => {
-    // Ensure line fits within the content width
     if (line.length > contentWidth - padding * 2) {
       line = line.slice(0, maxLengthRaw - padding * 2);
     }
 
-    // Calculate left and right padding based on raw content length (ignoring chalk)
     let leftPadding = ' '.repeat(padding);
     let rightPadding = ' '.repeat(contentWidth - stripChalk(line).length - padding * 2 + 1);
 
-    // Add chalk styling for the borders and content
     let contentline = `${Hue(borderVertical)}${leftPadding}${line}${rightPadding}${Hue(borderVertical)}`;
     return contentline;
   }).join('\n');
 
-  // Bottom border
   const borderBottom = `${borderBottomLeft}${borderHorizontal.repeat(titleLine.length - 2)}${borderBottomRight}`;
 
-  // Return the final box with content and borders
   return `${Hue(titleLine)}\n${paddedContent}\n${Hue(borderBottom)}`;
 }
   
@@ -5157,7 +5855,7 @@ drawBox(title, content, boxWidth, color) {
 		}
 	}
 	getPosWithinLine(pos) {
-		let charCount = 0; // Global character count
+		let charCount = 0;
 		for (let i = 0; i < this.lines.length; i++) {
 			for (let j = 0; j < this.lines[i].length; j++) {
 				if (charCount === pos) {
@@ -5175,7 +5873,7 @@ drawBox(title, content, boxWidth, color) {
 	getContextLines(pos) {
 	  const lineNumber = this.getLineFromPos(pos);
 	  if (lineNumber === -1) {
-		return { prev: null, current: { line: '' }, next: null }; // Ensure consistent structure
+		return { prev: null, current: { line: '' }, next: null };
 	  }
 
 	  const prevLine = lineNumber > 0 ? this.lines[lineNumber - 1] : null;
@@ -5203,7 +5901,7 @@ drawBox(title, content, boxWidth, color) {
 		return string;
 	}
 	truncrep(context, ch) {
-		const visibleWidth = Math.floor(process.stdout.columns * 0.85); // 65% of console width
+		const visibleWidth = Math.floor(process.stdout.columns * 0.85); // 85% of console width
 		const halfWidth = Math.floor(visibleWidth / 2);
 		let start = Math.max(0, ch - halfWidth);
 		let end = start + visibleWidth;
@@ -5238,7 +5936,7 @@ drawBox(title, content, boxWidth, color) {
 		truncatedPrev,
 		truncatedCurrent,
 		truncatedNext,
-		].join('\n'); // Join the content into one string
+		].join('\n');
 		const errorContent = [
 		  `${chalk.gray("ln" + ln + ":")} ${context.center.Line}`,
 		  `${' '.repeat(String(ln).length + 8)} ${context.center.pointer} char: ${ch} | ln: ${ln}`,
