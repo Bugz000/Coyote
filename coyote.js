@@ -1673,18 +1673,27 @@ class ASTExecutor {
 		const r = parser.parse();
 		return r
 	}
+	// a scope for an assertion. it gets its own function and class tables
+	// (spawn() shares them by reference) so whatever a snippet defines is
+	// gone with it instead of piling up in the tables the script sees
+	sandbox() {
+		const scope = this.spawn()
+		scope.functions = { ...this.functions }
+		scope.classes = { ...this.classes }
+		return scope
+	}
 	async assert_code(ast) {
 		// asserts run in their own scope. they fire off unawaited from the
 		// constructor so they'd otherwise be writing vars and flags into the
 		// same scope the script is busy using
 		const statements = (await this.make_ast(ast))['statements']
 		if (statements.length === 1) {
-			return (await this.spawn().execute_ast(statements[0]))
+			return (await this.sandbox().execute_ast(statements[0]))
 		}
 		// multi-line assertions: run every statement in one shared scope so
 		// earlier assignments are visible further down (var := 123 \n print(var)),
 		// and capture print() output so it can be asserted on directly
-		const scope = this.spawn()
+		const scope = this.sandbox()
 		// settings (things like #ArrayStartIndex) are shared-by-reference
 		// from spawn(), same as functions/classes - but unlike those, a
 		// directive is meant to be a per-script opt-in, so it gets its own
@@ -2699,6 +2708,10 @@ class ASTExecutor {
 		//     Scope(N) {        
 		//     Funcs(N) {        
 		//     Credits(N) {    
+		// the assertions run in a sandbox, so nothing of theirs should be left in the real tables
+		if (Object.keys(this.functions).length || Object.keys(this.classes).length) {
+			throw new Error(chalk.red(`Assertions leaked into the script's tables: ${[...Object.keys(this.functions), ...Object.keys(this.classes)].join(", ")}`));
+		}
 		if (debuglogtier > 1)		
 			console.log("All internal function tests passed.");
 	}
@@ -2965,7 +2978,8 @@ class ASTExecutor {
 		}
 
 		// Log the collected function definitions
-		console.log("Functions found:", this.functions);
+		if (debuglogtier > 0)
+			console.log("Functions found:", this.functions);
 		
 		this.set("A_consoleWidth", (process.stdout.columns || 80));
 		this.set("A_consoleHeight", (process.stdout.rows || 24));
