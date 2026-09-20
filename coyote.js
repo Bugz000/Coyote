@@ -2528,10 +2528,357 @@ class ASTExecutor {
 			// Var.func(param).round() - a class method chained into a global
 			// built-in once its return value isn't a class instance anymore
 			{ code: 'class Calc { addFive(n) { return n + 5 } }\nc := new Calc()\nprint(c.addFive(10).round())', expected: '15' },
+			
+			// typed values: a literal keeps its type through variables, arrays and objects
+			{ code: 'Json([5, "5", true, null])', expected: '[5,"5",true,null]' },
+			{ code: 'Json([1.5, "1.5", false])', expected: '[1.5,"1.5",false]' },
+			{ code: 'arr := [1, "1", true, null, 1.5]\nprint(Json(arr))', expected: '[1,"1",true,null,1.5]' },
+			{ code: 'Json({"a": 1, "b": "1", "c": true, "d": null})', expected: '{"a":1,"b":"1","c":true,"d":null}' },
+			{ code: 'x := 5\ny := "5"\nz := x\nprint(Json([x, y, z]))', expected: '[5,"5",5]' },
+			{ code: 'x := [1, 2]\nx[0] := "a"\nx[1] := 5\nprint(Json(x))', expected: '["a",5]' }, // array writes too
+			{ code: 'Json([TRUE, True, FALSE, False])', expected: '[true,true,false,false]' }, // boolean literals ignore case
+			{ code: 'x := TRUE\nprint(x === true)', expected: 'true' },
+			{ code: 'x := False\nprint(x === false)', expected: 'true' },
+			{ code: 'Type(true)', expected: 'boolean' },
+			{ code: 'Type(2.5)', expected: 'float' },
+			{ code: 'f() { return 2.5 }\nprint(Type(f()))', expected: 'float' }, // a function hands back what it was given
+			{ code: 'f() { return 1.5 + 1 }\nprint(f())', expected: '2.5' }, // Core() used to floor this to 2
+			{ code: 'f() { return true }\nprint(f() === true)', expected: 'true' },
+			{ code: 'f() { return false }\nprint(f() === false)', expected: 'true' },
+			{ code: 'Log(2.5)', expected: Math.log(2.5) }, // same, Log() used to floor its argument
+			
+			// numeric literal forms
+			{ code: '0xFF', expected: 255 },
+			{ code: '0XfF', expected: 255 },
+			{ code: '0x1_F', expected: 31 },
+			{ code: '0b1010', expected: 10 },
+			{ code: '0B11', expected: 3 },
+			{ code: '0b1_0', expected: 2 },
+			{ code: '1e6', expected: 1000000 },
+			{ code: '1E3', expected: 1000 },
+			{ code: '1e-3', expected: 0.001 },
+			{ code: '1e+3', expected: 1000 },
+			{ code: '1.5e-3', expected: 0.0015 },
+			{ code: '0.5e1', expected: 5 },
+			{ code: '1_000', expected: 1000 },
+			{ code: '1_000_000', expected: 1000000 },
+			{ code: '1_0', expected: 10 },
+			{ code: '1_000.5', expected: 1000.5 },
+			{ code: '.5', expected: 0.5 },
+			{ code: '0.50', expected: 0.5 },
+			{ code: '007', expected: 7 },
+			{ code: '-0xFF', expected: -255 },
+			{ code: '-.5', expected: -0.5 },
+			{ code: 'x := -0x10\nprint(x + 1)', expected: '-15' },
+			{ code: 'x := 5\nprint(x -0x1)', expected: '4' }, // still a subtraction with no space
+			{ code: 'r := 2e3 + 1\nprint(r)', expected: '2001' },
+			{ code: 'r := .5 + .5\nprint(r)', expected: '1' },
+			{ code: 'r := 0x10 + 0b10\nprint(r)', expected: '18' },
+			{ code: 'r := 1_000 * 2\nprint(r)', expected: '2000' },
+			{ code: 'r := 0xFF = 255\nprint(r)', expected: 'true' },
+			{ code: 'r := 0xFF === 255\nprint(r)', expected: 'true' },
+			{ code: 'arr := [0x10, 0b11, 1e2, 1_000]\nprint(Sum(arr))', expected: '1119' },
+			{ code: 'arr := [0x10, .5]\nprint(Json(arr))', expected: '[16,0.5]' },
+			{ code: 'r := "x" . 0x10 . 1e3\nprint(r)', expected: 'x161000' },
+			{ code: 'e1 := 5\nx1e3 := 6\nx0b1 := 3\nx0x1 := 1\nprint(e1 + x1e3 + x0b1 + x0x1)', expected: '15' }, // names that look like numbers are still names
+			
+			// null, undefined / nil, NaN and Infinity
+			{ code: 'null', expected: null },
+			{ code: 'NULL', expected: null },
+			{ code: 'undefined', expected: undefined },
+			{ code: 'UNDEFINED', expected: undefined },
+			{ code: 'nil', expected: undefined }, // nil is undefined
+			{ code: 'Nil', expected: undefined },
+			{ code: 'NaN', expected: NaN },
+			{ code: 'nan', expected: NaN },
+			{ code: 'Infinity', expected: Infinity },
+			{ code: 'INFINITY', expected: Infinity },
+			{ code: 'x := -Infinity\nprint(x)', expected: '-Infinity' },
+			{ code: 'x := NaN\nprint(x)', expected: 'NaN' },
+			{ code: 'x := Infinity\nprint(x)', expected: 'Infinity' },
+			{ code: 'x := null\nprint(x)', expected: '' }, // null and undefined print as nothing
+			{ code: 'x := undefined\nprint(x)', expected: '' },
+			{ code: 'x := 1\nprint()', expected: '' },
+			{ code: 'x := "a" . null . "b" . undefined . "c"\nprint(x)', expected: 'abc' }, // and add nothing to a concat
+			{ code: 'x := null\nx .= "a"\nprint(x)', expected: 'a' },
+			{ code: 'x := undefined\nx .= 5\nprint(x)', expected: '5' },
+			{ code: 'x := "a" . NaN . Infinity . true . false\nprint(x)', expected: 'aNaNInfinitytruefalse' },
+			{ code: 'x := null\nprint(Type(x))', expected: 'null' },
+			{ code: 'Type(null)', expected: 'null' },
+			{ code: 'Type(undefined)', expected: 'undefined' },
+			{ code: 'Type(nil)', expected: 'undefined' },
+			{ code: 'o := {"a": null}\nprint(Type(o.a))', expected: 'null' },
+			{ code: 'o := {"a": null}\nprint(HasKey(o, "a"))', expected: '1' }, // a null value is still a key
+			{ code: 'a := [null, 1]\nprint(IsNull(a[0]))', expected: '1' },
+			{ code: 'nullable := 1\nnilly := 2\nnan_x := 3\ninfinity2 := 4\nundefinedVar := 5\nprint(nullable + nilly + nan_x + infinity2 + undefinedVar)', expected: '15' }, // names that start with a keyword are still names
+			{ code: 'o := {"null": 1, "nil": 2}\nprint(o.null + o.nil)', expected: '3' }, // and so are property names
+			{ code: 'f() { return null }\nprint(IsNull(f()))', expected: '1' },
+			{ code: 'f() { return NaN }\nprint(f() = f())', expected: 'false' },
+			{ code: 'class T { f() { return null }\ng() { return true }\nh() { return 1.5 + 1 } }\nt := new T()\nprint(IsNull(t.f()))\nprint(t.g() === true)\nprint(t.h())', expected: '1\ntrue\n2.5' }, // methods too
+			{ code: 'n := 0\nloop (null) { n++ }\nprint(n)', expected: '0' }, // looping over nothing runs nothing
+			{ code: 'n := 0\nloop (undefined) { n++ }\nprint(n)', expected: '0' },
+			{ code: 'n := 0\nloop (NaN) { n++ }\nprint(n)', expected: '0' },
+			{ code: 'n := 0\nx := null\nloop (x) { n++ }\nprint(n)', expected: '0' },
+			{ code: 'n := 0\nloop (false) { n++ }\nprint(n)', expected: '0' },
+			
+			// arithmetic: nothing is 0, a boolean is 1/0, NaN wins, Infinity works
+			{ code: 'r := 1 + NaN\nprint(r)', expected: 'NaN' },
+			{ code: 'r := NaN + 1\nprint(r)', expected: 'NaN' },
+			{ code: 'r := 1 - NaN\nprint(r)', expected: 'NaN' },
+			{ code: 'r := NaN * 2\nprint(r)', expected: 'NaN' },
+			{ code: 'r := 2 * NaN\nprint(r)', expected: 'NaN' },
+			{ code: 'r := NaN / 2\nprint(r)', expected: 'NaN' },
+			{ code: 'r := 2 / NaN\nprint(r)', expected: 'NaN' },
+			{ code: 'r := Infinity + 1\nprint(r)', expected: 'Infinity' },
+			{ code: 'r := 1 / Infinity\nprint(r)', expected: '0' },
+			{ code: 'r := 1 / 0\nprint(r)', expected: 'Infinity' },
+			{ code: 'r := Infinity > 1e308\nprint(r)', expected: 'true' },
+			{ code: 'r := -Infinity < 0\nprint(r)', expected: 'true' },
+			{ code: 'r := null + 1\nprint(r)', expected: '1' },
+			{ code: 'r := undefined + 1\nprint(r)', expected: '1' },
+			{ code: 'r := 5 - null\nprint(r)', expected: '5' },
+			{ code: 'r := null * 3\nprint(r)', expected: '0' },
+			{ code: 'r := 3 * undefined\nprint(r)', expected: '0' },
+			{ code: 'r := true + 1\nprint(r)', expected: '2' },
+			{ code: 'r := false + 1\nprint(r)', expected: '1' },
+			{ code: 'r := true * 3\nprint(r)', expected: '3' },
+			{ code: 'r := 5 - true\nprint(r)', expected: '4' },
+			{ code: 'r := 6 / true\nprint(r)', expected: '6' },
+			
+			// truthiness: false, null, undefined, NaN, "" and anything that reads as 0 are false, everything else is true
+			{ code: 'x := 1\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := -1\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := 0.5\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := Infinity\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := true\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := "a"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := "abc0"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := "false"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' }, // only the text, so still true
+			{ code: 'x := "null"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := " "\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' }, // blank is not empty
+			{ code: 'x := []\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' }, // objects are always true, IsEmpty() is for those
+			{ code: 'x := [0]\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'x := {"a": 0}\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 't\nfalse' },
+			{ code: 'class T { }\nt := new T()\nif (t) { print("t") } else { print("f") }', expected: 't' },
+			{ code: 'x := 0\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := "0"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' }, // a numeric string reads as its number
+			{ code: 'x := "0.0"\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := " 0 "\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := 0x0\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := 0b0\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := .0\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := ""\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := false\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := null\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := undefined\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'x := NaN\nif (x) { print("t") } else { print("f") }\nprint(!x)', expected: 'f\ntrue' },
+			{ code: 'if (missing) { print("t") } else { print("f") }\nprint(!missing)', expected: 'f\ntrue' }, // a variable that was never set
+			{ code: 'r := 0 ? "t" : "f"\nprint(r)', expected: 'f' }, // the same table for ternary, && and ||
+			{ code: 'r := "0" ? "t" : "f"\nprint(r)', expected: 'f' },
+			{ code: 'r := "" ? "t" : "f"\nprint(r)', expected: 'f' },
+			{ code: 'r := null ? "t" : "f"\nprint(r)', expected: 'f' },
+			{ code: 'r := NaN ? "t" : "f"\nprint(r)', expected: 'f' },
+			{ code: 'r := false ? "t" : "f"\nprint(r)', expected: 'f' },
+			{ code: 'r := [] ? "t" : "f"\nprint(r)', expected: 't' },
+			{ code: 'r := "false" ? "t" : "f"\nprint(r)', expected: 't' },
+			{ code: 'r := 2 ? "t" : "f"\nprint(r)', expected: 't' },
+			{ code: 'x := "0"\nr := x || "d"\nprint(r)', expected: 'd' },
+			{ code: 'x := "0"\nr := x && "y"\nprint(r)', expected: '0' }, // a falsy left side comes back as it is
+			{ code: 'x := 5\nr := x && "y"\nprint(r)', expected: 'y' },
+			{ code: 'x := null\nr := x || "d"\nprint(r)', expected: 'd' },
+			{ code: 'x := null\nr := x && "y"\nprint(IsNull(r))', expected: '1' },
+			{ code: 'x := 0\nr := x || null\nprint(IsNull(r))', expected: '1' },
+			
+			// equality table, loose (= ignores case, == doesn't): numbers by value, nothing only matches nothing and "", a boolean is 1/0 or true/false
+			{ code: 'r := 1 = 1.0\nprint(r)', expected: 'true' },
+			{ code: 'r := "1" = 1\nprint(r)', expected: 'true' },
+			{ code: 'r := "1" = "1.0"\nprint(r)', expected: 'true' },
+			{ code: 'r := "01" = 1\nprint(r)', expected: 'true' },
+			{ code: 'r := "abc" = "ABC"\nprint(r)', expected: 'true' },
+			{ code: 'r := "abc" == "ABC"\nprint(r)', expected: 'false' },
+			{ code: 'r := "" = 0\nprint(r)', expected: 'false' },
+			{ code: 'r := "" = ""\nprint(r)', expected: 'true' },
+			{ code: 'r := 0 = false\nprint(r)', expected: 'true' },
+			{ code: 'r := 1 = true\nprint(r)', expected: 'true' },
+			{ code: 'r := 2 = true\nprint(r)', expected: 'false' },
+			{ code: 'r := "0" = false\nprint(r)', expected: 'true' },
+			{ code: 'r := "1" = true\nprint(r)', expected: 'true' },
+			{ code: 'r := "true" = true\nprint(r)', expected: 'true' },
+			{ code: 'r := "TRUE" = true\nprint(r)', expected: 'true' },
+			{ code: 'r := "TRUE" == true\nprint(r)', expected: 'false' },
+			{ code: 'r := "yes" = true\nprint(r)', expected: 'false' },
+			{ code: 'r := true = 1\nprint(r)', expected: 'true' }, // and with the boolean on the left
+			{ code: 'r := false = 0\nprint(r)', expected: 'true' },
+			{ code: 'r := true = "1"\nprint(r)', expected: 'true' },
+			{ code: 'r := true = 2\nprint(r)', expected: 'false' },
+			{ code: 'r := true == "TRUE"\nprint(r)', expected: 'false' },
+			{ code: 'r := true = "TRUE"\nprint(r)', expected: 'true' },
+			{ code: 'r := true = true\nprint(r)', expected: 'true' },
+			{ code: 'r := true = false\nprint(r)', expected: 'false' },
+			{ code: 'r := false = false\nprint(r)', expected: 'true' },
+			{ code: 'r := false = ""\nprint(r)', expected: 'false' },
+			{ code: 'r := null = null\nprint(r)', expected: 'true' },
+			{ code: 'r := null = undefined\nprint(r)', expected: 'true' },
+			{ code: 'r := null = nil\nprint(r)', expected: 'true' },
+			{ code: 'r := null = ""\nprint(r)', expected: 'true' },
+			{ code: 'r := undefined = ""\nprint(r)', expected: 'true' },
+			{ code: 'r := null = 0\nprint(r)', expected: 'false' },
+			{ code: 'r := null = false\nprint(r)', expected: 'false' },
+			{ code: 'r := null = "null"\nprint(r)', expected: 'false' },
+			{ code: 'r := null = []\nprint(r)', expected: 'false' },
+			{ code: 'r := null == ""\nprint(r)', expected: 'true' },
+			{ code: 'r := NaN = NaN\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN == NaN\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN = 1\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN = "NaN"\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN != NaN\nprint(r)', expected: 'true' },
+			{ code: 'r := Infinity = Infinity\nprint(r)', expected: 'true' },
+			{ code: 'r := Infinity = -Infinity\nprint(r)', expected: 'false' },
+			{ code: 'r := Infinity = 1e999\nprint(r)', expected: 'true' },
+			{ code: 'r := [1] = [1]\nprint(r)', expected: 'false' }, // arrays and objects only match themselves
+			{ code: 'a := [1]\nb := a\nc := [1]\nprint(a = b)\nprint(a = c)', expected: 'true\nfalse' },
+			{ code: 'a := {"x": 1}\nb := a\nc := {"x": 1}\nprint(a == b)\nprint(a == c)', expected: 'true\nfalse' },
+			{ code: 'r := 1 != "1"\nprint(r)', expected: 'false' },
+			{ code: 'r := "a" != "A"\nprint(r)', expected: 'false' },
+			{ code: 'r := null != 0\nprint(r)', expected: 'true' },
+			{ code: 'r := null != ""\nprint(r)', expected: 'false' },
+			// strict: kind and value, nothing coerced
+			{ code: 'r := null === null\nprint(r)', expected: 'true' },
+			{ code: 'r := undefined === undefined\nprint(r)', expected: 'true' },
+			{ code: 'r := nil === undefined\nprint(r)', expected: 'true' },
+			{ code: 'r := null === undefined\nprint(r)', expected: 'false' },
+			{ code: 'r := null !== undefined\nprint(r)', expected: 'true' },
+			{ code: 'r := "" === null\nprint(r)', expected: 'false' },
+			{ code: 'r := 0 === false\nprint(r)', expected: 'false' },
+			{ code: 'r := 0 === null\nprint(r)', expected: 'false' },
+			{ code: 'r := true === 1\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN === NaN\nprint(r)', expected: 'false' },
+			{ code: 'r := NaN !== NaN\nprint(r)', expected: 'true' },
+			{ code: 'r := Infinity === Infinity\nprint(r)', expected: 'true' },
+			{ code: 'r := [] === []\nprint(r)', expected: 'false' },
+			{ code: 'a := []\nb := a\nprint(a === b)', expected: 'true' },
+			{ code: 'x := 1\nprint(x === "1")', expected: 'false' }, // variables now know what they hold
+			{ code: 'x := "1"\nprint(x === 1)', expected: 'false' },
+			{ code: 'x := "1"\nprint(x === "1")', expected: 'true' },
+			{ code: 'x := "1"\nprint(x == 1)', expected: 'true' },
+			{ code: 'x := 1\ny := 1.0\nprint(x === y)', expected: 'true' },
+			{ code: 'x := 1 + 1\nprint(x === 2)', expected: 'true' },
+			{ code: 'x := "1" . "1"\nprint(x === "11")\nprint(x === 11)\nprint(x == 11)', expected: 'true\nfalse\ntrue' }, // concat gives a string
+			{ code: 'x := 5\ny := x\nprint(y === 5)', expected: 'true' },
+			{ code: 'x := "5"\ny := x\nprint(y === "5")', expected: 'true' },
+			
+			// objects evaluate their values, so variables, calls, arrays and objects all work
+			{ code: 'x := 5\no := {"v": x}\nprint(o.v)', expected: '5' }, // used to be "undefined"
+			{ code: 'o := {"a": [1, 2, 3]}\nprint(o.a[1])', expected: '2' }, // arrays were "undefined" too
+			{ code: 'o := {"a": {"b": {"c": 1}}}\nprint(o.a.b.c)', expected: '1' },
+			{ code: 'o := {"list": [{"n": 1}, {"n": 2}]}\nprint(o.list[1].n)', expected: '2' },
+			{ code: 'o := {"s": 1 + 2, "f": Upper("a")}\nprint(o.s . o.f)', expected: '3A' },
+			{ code: 'f() { return 7 }\no := {"r": f()}\nprint(o.r)', expected: '7' },
+			{ code: 'o := {"a": [1, 2]}\no.a[0] := 9\nprint(o.a[0])', expected: '9' },
+			{ code: '#ArrayStartIndex(1)\no := {"a": [10, 20]}\nprint(o.a[1])', expected: '10' },
+			{ code: 'o := {"a": 1}\nprint(Type(o.a))', expected: 'int' }, // numbers stay numbers
+			{ code: 'o := {"a": "1"}\nprint(Json(o))', expected: '{"a":"1"}' }, // and strings stay strings
+			{ code: 'Json({"a": [1, {"b": 2}]})', expected: '{"a":[1,{"b":2}]}' },
+			{ code: 'isArray({"a": [1, 2]})', expected: 0 },
+			{ code: 'isObject({"a": [1, 2]})', expected: 1 },
+			{ code: 'o := {"a": [1, 2]}\nprint(isArray(o.a))', expected: '1' },
+			{ code: 'Type({"a": 1})', expected: 'object' },
+			{ code: 'f() { return {"a": [1, 2]} }\nr := f()\nprint(r.a[1])', expected: '2' }, // objects come back out of functions intact
+			{ code: 'class P { v() { return 5 } }\nmk() { return new P() }\np := mk()\nprint(p.v())', expected: '5' }, // and so do instances
+			
+			// IsNull and Default
+			{ code: 'IsNull(null)', expected: 1 },
+			{ code: 'IsNull(undefined)', expected: 1 },
+			{ code: 'IsNull(nil)', expected: 1 },
+			{ code: 'IsNull("")', expected: 0 },
+			{ code: 'IsNull(0)', expected: 0 },
+			{ code: 'IsNull(false)', expected: 0 },
+			{ code: 'IsNull(NaN)', expected: 0 },
+			{ code: 'IsNull([])', expected: 0 },
+			{ code: 'IsNull(missing)', expected: 1 }, // a variable that was never set
+			{ code: 'x := null\nprint(IsNull(x))', expected: '1' },
+			{ code: 'x := undefined\nprint(IsNull(x))', expected: '1' },
+			{ code: 'x := 5\nprint(IsNull(x))', expected: '0' },
+			{ code: 'x := ""\nprint(IsNull(x))', expected: '0' }, // set to nothing is not unset
+			{ code: 'X := null\nprint(IsNull(x))', expected: '1' },
+			{ code: 'Default(null, "d")', expected: 'd' },
+			{ code: 'Default(undefined, 1)', expected: 1 },
+			{ code: 'Default("x", "d")', expected: 'x' },
+			{ code: 'Default("", "d")', expected: '' }, // only null, undefined and unset get replaced
+			{ code: 'Default(0, 5)', expected: 0 },
+			{ code: 'Default(false, 1)', expected: false },
+			{ code: 'Default(missing, "d")', expected: 'd' },
+			{ code: 'Default(null, null)', expected: null },
+			{ code: 'Default(null, [1, 2])', expected: [1, 2] },
+			{ code: 'Default(Default(null, undefined), 3)', expected: 3 },
+			{ code: 'x := 5\nprint(Default(x, 9))', expected: '5' },
+			{ code: 'x := null\nprint(Default(x, 9))', expected: '9' },
+			{ code: 'name := Default(name, "anon")\nprint(name)', expected: 'anon' },
+			{ code: 'name := "bob"\nname := Default(name, "anon")\nprint(name)', expected: 'bob' },
+			{ code: 'f(a := 5) { return a }\nprint(f(undefined))', expected: '5' }, // undefined takes the parameter default
+			{ code: 'f(a := 5) { return a }\nprint(f())', expected: '5' },
+			{ code: 'f(a := 5) { return a }\nprint(IsNull(f(null)))', expected: '1' }, // null doesn't
+			
+			// builtins that used to get everything as a string
+			{ code: 'Upper(5)', expected: '5' },
+			{ code: 'Lower(5)', expected: '5' },
+			{ code: 'Repeat(5, 3)', expected: '555' },
+			{ code: 'InStr(12345, 3)', expected: 3 },
+			{ code: 'Strepl(1234, 2, 9)', expected: '1934' },
+			{ code: 'Repl(12345, 3, 9)', expected: '12945' },
+			{ code: 'Repl(1233, 3, 9, 1)', expected: '1299' },
+			{ code: 'Grep(2, 12)', expected: ['12'] },
+			{ code: 'StrSplit(1.5, ".")', expected: ['1', '5'] },
+			{ code: 'Occur(1231, 1)', expected: 2 },
+			{ code: 'Occur("Hello", "L", 1)', expected: 2 }, // only 2 makes it case-sensitive
+			{ code: 'Occur("Hello", "l", 2)', expected: 2 },
+			{ code: 'LastOcc(1231, 1)', expected: 4 },
+			{ code: 'LastOcc("Hello", "l", 2)', expected: 4 },
+			{ code: 'Justify(5, 1, 3)', expected: '5  ' },
+			{ code: 'StrClean(5, 1)', expected: '5' },
+			{ code: 'StrClean("  a   b  ", 3)', expected: 'ab' }, // the mode is a real number now
+			{ code: 'Count(12345)', expected: 5 },
+			{ code: 'MaxIndex(12345)', expected: 4 },
+			{ code: 'Slice(12345, 1, 3)', expected: '23' },
+			{ code: 'Asc(5)', expected: 53 },
+			{ code: 'Rem(12345, "3")', expected: [ { match: '3', pos: 2 } ] },
+			{ code: 'Contains(FWrite(123, ""), "ENOENT")', expected: 1 }, // gets as far as opening the (missing) file, so the data was fine
+			{ code: 'Contains(FAppend(123, ""), "ENOENT")', expected: 1 },
+			{ code: 'IndexOf([10, 20, 30], "20")', expected: 1 }, // lookups still ignore the type
+			{ code: 'Contains([1, 2, 3], "2")', expected: 1 },
+			{ code: 'Unique([1, "1", 2])', expected: [1, 2] },
+			{ code: 'Sort([10, 9, "8"])', expected: ["8", 9, 10] }, // sorts by number, hands the items back as they were
+			{ code: 'Max(["10", 9])', expected: 10 },
+			
+			// builtins that meet the special values
+			{ code: 'IsEmpty(null)', expected: 1 },
+			{ code: 'IsEmpty(nil)', expected: 1 },
+			{ code: 'IsEmpty(0)', expected: 0 },
+			{ code: 'StrLen(null)', expected: 0 },
+			{ code: 'StrLen(undefined)', expected: 0 },
+			{ code: 'IsNum(null)', expected: 0 },
+			{ code: 'IsNum(undefined)', expected: 0 },
+			{ code: 'IsNum(true)', expected: 0 },
+			{ code: 'IsNum(NaN)', expected: 0 },
+			{ code: 'IsNum(Infinity)', expected: 1 },
+			{ code: 'IsNum(0x10)', expected: 1 },
+			{ code: 'IsString(null)', expected: 0 },
+			{ code: 'IsString(true)', expected: 0 },
+			{ code: 'IsObject(null)', expected: 0 },
+			{ code: 'IsArray(null)', expected: 0 },
+			{ code: 'IsInt(null)', expected: 0 },
+			{ code: 'IsInt(true)', expected: 0 },
+			{ code: 'IsFloat(null)', expected: 0 },
+			{ code: 'ToString(null)', expected: '' },
+			{ code: 'ToString(true)', expected: 'true' },
+			{ code: 'ToString(NaN)', expected: 'NaN' },
+			{ code: 'ToString(0x10)', expected: '16' },
+			{ code: 'Json(null)', expected: 'null' },
+			{ code: 'Json(true)', expected: 'true' },
 		];
 		// === never matches two separately built arrays/objects, so compare structurally
 		const deepEqual = (a, b) => {
-			if (a === b) return true;
+			if (a === b || (a !== a && b !== b)) return true; // NaN isn't === itself
 			if (Array.isArray(a) && Array.isArray(b)) {
 				return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
 			}
@@ -2573,6 +2920,23 @@ class ASTExecutor {
 			{ code: 'x := 2 & 3 | 4', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─BITWISE_OR\n      ├─BITWISE_AND\n      │ ├─2\n      │ └─3\n      └─4\n' }, // & under |
 			{ code: 'x := 1 << 2 + 1', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─BIT_SHIFT\n      ├─1\n      └─ADD\n        ├─2\n        └─1\n' }, // add under shift
 			{ code: 'x := 1 < 2 = 3 < 4', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─EQUALS\n      ├─LESS_THAN\n      │ ├─1\n      │ └─2\n      └─LESS_THAN\n        ├─3\n        └─4\n' }, // comparison under equality
+			{ code: 'x := null', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─null\n' }, // typed literals in the tree
+			{ code: 'x := undefined', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─undefined\n' },
+			{ code: 'x := nil', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─undefined\n' }, // same node as undefined
+			{ code: 'x := NaN', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─NaN\n' },
+			{ code: 'x := Infinity', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─Infinity\n' },
+			{ code: 'x := -Infinity', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─SUB\n      ├─0\n      └─Infinity\n' },
+			{ code: 'x := TRUE', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─true\n' },
+			{ code: 'x := 0xFF', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─255\n' }, // numeric forms come out as plain numbers
+			{ code: 'x := 0b101', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─5\n' },
+			{ code: 'x := 1e6', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─1000000\n' },
+			{ code: 'x := 1_000', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─1000\n' },
+			{ code: 'x := .5', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─0.5\n' },
+			{ code: 'x := 1.5e-3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─0.0015\n' },
+			{ code: 'x := "5"', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─"5"\n' }, // a string keeps its quotes, a number does not
+			{ code: 'x := nullable', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─VAR nullable\n' }, // not a null
+			{ code: 'x := [null, 0x10, "a"]', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─ARRAY\n      ├─null\n      ├─16\n      └─"a"\n' },
+			{ code: 'x := {"a": null}', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OBJECT\n      └─"a"\n        └─null\n' },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		//     Format(N) {       
 		//     Print(S) {        
