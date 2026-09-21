@@ -1291,6 +1291,100 @@ class CoyoteParser extends Parser {
 		//console.log(this.print_current_position()[1]);
 	}
 }
+// edit distance, for the did you mean suggestions
+function levenshtein(a, b) {
+	a = String(a);
+	b = String(b);
+	const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+	for (let i = 1; i <= a.length; i++) {
+		let prev = row[0];
+		row[0] = i;
+		for (let j = 1; j <= b.length; j++) {
+			const keep = row[j];
+			row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+			prev = keep;
+		}
+	}
+	return row[b.length];
+}
+// the closest name, if it is near enough to be a typo (case doesn't count)
+function nearest(name, names) {
+	name = String(name).toLowerCase();
+	let best = null;
+	let bestd = Math.floor((name.length + 1) / 3) + 1;
+	for (const n of names) {
+		const d = levenshtein(name, String(n).toLowerCase());
+		if (d < bestd) {
+			best = n;
+			bestd = d;
+		}
+	}
+	return best;
+}
+// 1 based line and column of a position, the line starts are kept for the last input
+let line_input = null;
+let line_starts = null;
+function locate(input, pos) {
+	if (input !== line_input) {
+		line_input = input;
+		line_starts = [0];
+		for (let i = 0; i < input.length; i++) {
+			if (input[i] === '\n') {
+				line_starts.push(i + 1);
+			}
+		}
+	}
+	let lo = 0;
+	let hi = line_starts.length - 1;
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1;
+		if (line_starts[mid] <= pos) {
+			lo = mid;
+		} else {
+			hi = mid - 1;
+		}
+	}
+	return { line: lo + 1, col: pos - line_starts[lo] + 1 };
+}
+// a node without a place gets its parent's, so inline ones like the variable in x++ have one too
+function place(node, where) {
+	if (node === null || typeof node !== 'object') {
+		return;
+	}
+	if (Array.isArray(node) || node instanceof Map) {
+		for (const child of node.values()) {
+			place(child, where);
+		}
+		return;
+	}
+	if (typeof node.type === 'number') {
+		if (node.line !== undefined) {
+			return;
+		}
+		Object.assign(node, where);
+	}
+	for (const child of Object.values(node)) {
+		place(child, where);
+	}
+}
+// every node remembers where it started, runtime errors use that to say where they happened
+for (const name of Object.getOwnPropertyNames(CoyoteParser.prototype)) {
+	const parse = CoyoteParser.prototype[name];
+	if (!name.startsWith('parse_') || typeof parse !== 'function') {
+		continue;
+	}
+	CoyoteParser.prototype[name] = function (...args) {
+		let start = this.position;
+		while (this.input[start] === ' ' || this.input[start] === '\t') {
+			start++;
+		}
+		const result = parse.apply(this, args);
+		if (result && result.value !== undefined) {
+			place(result.value, locate(this.input, start));
+		}
+		return result;
+	};
+}
 const ESCAPES = { n: '\n', t: '\t', r: '\r', '0': '\0', '"': '"', "'": "'", '\\': '\\', '`': '`', '$': '$' };
 // one escape, \n or `n, \u{41} etc. anything unknown stays as written so \d still reaches a regex
 function unescape_seq(seq) {
@@ -1708,7 +1802,8 @@ class ASTExecutor {
 		this.functions = parent ? parent.functions : {};
 		this.natives = parent ? parent.natives : {};
 		this.classes = parent ? parent.classes : {};
-		this.settings = parent ? parent.settings : { arrayStartIndex: 0, batchLines: null, batchOps: null };
+		this.settings = parent ? parent.settings : { arrayStartIndex: 0, batchLines: null, batchOps: null, strict: false, maxDepth: 1000 };
+		this.frames = parent ? parent.frames : [];
 		this.debug = 11111111111110;
 		this.initialising = true;
 		this.methods = parent ? parent.methods : Object.getOwnPropertyNames(ASTExecutor.prototype)
@@ -3028,6 +3123,31 @@ class ASTExecutor {
 			{ code: 'o := {"k`ney": 5}\nprint(o["k\\ney"])', expected: '5' },
 			{ code: "x := \"a\" . \"`n\" . 'b'\nprint(x)", expected: 'a\nb' },
 			
+			// #Strict: undefined variables and missing functions give "" until it is on
+			{ code: 'x := missing\nprint(x . "|")', expected: '|' },
+			{ code: 'x := nope(1)\nprint(x . "|")', expected: '|' },
+			{ code: '#Strict(0)\nx := missing\nprint(x . "|")', expected: '|' },
+			{ code: '#Strict(false)\nx := nope(1)\nprint(x . "|")', expected: '|' },
+			{ code: '#Strict()\nx := 1\nprint(x)', expected: '1' },
+			{ code: '#Strict()\nx := 5\nf() { return x }\nprint(f())', expected: '5' }, // outer variables are in scope
+			{ code: '#Strict()\nf(a, b := 2) { return a + b }\nprint(f(1))', expected: '3' },
+			{ code: '#Strict()\nloop (2) { print(A_Index) }', expected: '1\n2' },
+			{ code: '#Strict()\nloop ([5, 6]) { print(A_Key . A_Val) }', expected: '05\n16' },
+			{ code: '#Strict()\no := {"a": 1}\no.b := 2\nprint(o.a + o.b)', expected: '3' },
+			{ code: '#Strict()\no.a := 1\nprint(o.a)', expected: '1' }, // assigning is how you make one
+			{ code: '#Strict()\nprint(IsNull(missing))\nprint(Default(missing, 5))', expected: '1\n5' }, // and this is how you read one that may not be set
+			{ code: '#Strict()\nname := Default(name, "anon")\nprint(name)', expected: 'anon' },
+			{ code: '#Strict()\nprint(Upper("a"))', expected: 'A' },
+			{ code: '#Strict()\ndouble(n) { return n * 2 }\nprint(double(4))', expected: '8' },
+			{ code: '#Strict()\nclass C { __init(v) { val := v }\nget() { return val } }\nc := new C(3)\nprint(c.get())', expected: '3' },
+			{ code: '#Strict()\nx := "a"\nx .= "b"\nprint(x)', expected: 'ab' },
+			{ code: '#Strict()\nx := 1\nx++\nx += 2\nprint(x)', expected: '4' },
+			{ code: '#Strict()\nname := "v"\nv := 9\nprint(%name%)', expected: '9' },
+			{ code: '#Strict()\nx := `${Sum([1, 2])}`\nprint(x)', expected: '3' },
+			{ code: '#Strict()\nx := 5\n#Strict(0)\ny := missing\nprint(x)', expected: '5' }, // directives all run first, the last one wins
+			{ code: 'f(n) { if (n <= 0) { return 0 }\nreturn 1 + f(n - 1) }\nprint(f(999))', expected: '999' }, // deep is fine up to the limit
+			{ code: 'a(n) { if (n <= 0) { return 0 }\nreturn 1 + b(n - 1) }\nb(n) { return 1 + a(n - 1) }\nprint(a(400))', expected: '400' },
+			
 			// quotes inside strings, and single-quoted strings
 			{ code: "'say \"hi\"'", expected: 'say "hi"' },
 			{ code: '"it\'s"', expected: "it's" },
@@ -3225,6 +3345,227 @@ class ASTExecutor {
 			{ code: 'x := `a ${} b`', expected: "Expected expression after '${'" },
 			{ code: 'x := "ok"', expected: 'no error' },
 		], async (code) => { try { await this.assert_code(code) } catch (err) { return err.summary } return 'no error' });
+		// where things are, every node knows its line and column (from 1, a tab is one column)
+		const spot = (node, out) => {
+			if (node === null || typeof node !== 'object') return;
+			if (Array.isArray(node) || node instanceof Map) {
+				for (const child of node.values()) spot(child, out);
+				return;
+			}
+			if (typeof node.type === 'number') out.push(ItemType[node.type] + ' ' + node.line + ':' + node.col);
+			for (const child of Object.values(node)) spot(child, out);
+		};
+		await assert([
+			{ code: 'x := 1 + 2 * 3', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,ADD 1:6,LITERAL 1:6,MUL 1:10,LITERAL 1:10,LITERAL 1:14' },
+			{ code: 'x := 1\ny := 2', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,LITERAL 1:6,ASSIGNMENT 2:1,VARIABLE 2:1,LITERAL 2:6' },
+			{ code: 'x := 1\r\ny := 2', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,LITERAL 1:6,ASSIGNMENT 2:1,VARIABLE 2:1,LITERAL 2:6' }, // windows line endings
+			{ code: '\tx := 1\n  y := 2', expected: 'ASSIGNMENT 1:2,VARIABLE 1:2,LITERAL 1:7,ASSIGNMENT 2:3,VARIABLE 2:3,LITERAL 2:8' },
+			{ code: '; c\nx := 1', expected: 'ASSIGNMENT 2:1,VARIABLE 2:1,LITERAL 2:6' },
+			{ code: '\n\n\nx := 1', expected: 'ASSIGNMENT 4:1,VARIABLE 4:1,LITERAL 4:6' },
+			{ code: 'x := 1, y := 2', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,LITERAL 1:6,ASSIGNMENT 1:9,VARIABLE 1:9,LITERAL 1:14' },
+			{ code: 'x := "a\nb"\ny := 1', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,LITERAL 1:6,ASSIGNMENT 3:1,VARIABLE 3:1,LITERAL 3:6' }, // a string over lines
+			{ code: 'x := <<END\na\nEND\ny := 1', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TEMPLATE 1:6,ASSIGNMENT 4:1,VARIABLE 4:1,LITERAL 4:6' },
+			{ code: 'if (x) {\n\ty := 1\n} else {\n\tz := 2\n}', expected: 'IF 1:1,VARIABLE 1:5,ASSIGNMENT 2:2,VARIABLE 2:2,LITERAL 2:7,ASSIGNMENT 4:2,VARIABLE 4:2,LITERAL 4:7' },
+			{ code: 'loop (2) {\n\tbreak\n}', expected: 'LOOP 1:1,LITERAL 1:7,BREAK 2:2' },
+			{ code: 'f(a, b := 2) {\n\treturn a\n}', expected: 'FUNCTION_DEFINITION 1:1,LITERAL 1:11,RETURN 2:2,VARIABLE 2:9' },
+			{ code: 'class C {\n\tm() {\n\t}\n}', expected: 'CLASS_DEFINITION 1:1,FUNCTION_DEFINITION 2:2' },
+			{ code: 'x := c ? 1 : 2', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TERNARY 1:6,VARIABLE 1:6,LITERAL 1:10,LITERAL 1:14' },
+			{ code: 'x := [1, 2]', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,ARRAY 1:6,LITERAL 1:7,LITERAL 1:10' },
+			{ code: 'x := {"a": 1}', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,OBJECT 1:6,LITERAL 1:12' },
+			{ code: 'x := `a${b}`', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TEMPLATE 1:6,VARIABLE 1:10' },
+			{ code: 'x++', expected: 'INC 1:1,VARIABLE 1:1,LITERAL 1:1' }, // inline nodes take their parent's place
+			{ code: 'x .= "a"', expected: 'APP 1:1,VARIABLE 1:1,LITERAL 1:6' },
+			{ code: 'y := %x%', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,DEREF 1:6,VARIABLE 1:6' },
+			{ code: 'y := new C(1)', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,NEW_INSTANCE 1:6,LITERAL 1:12' },
+			{ code: 'y := o.a.b', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,MEMBER_ACCESS 1:6,MEMBER_ACCESS 1:6,VARIABLE 1:6,LITERAL 1:7,LITERAL 1:9' },
+			{ code: 'y := o[1]', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,MEMBER_ACCESS 1:6,VARIABLE 1:6,LITERAL 1:8' },
+			{ code: 'y := c.m(1)', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,METHOD_CALL 1:6,MEMBER_ACCESS 1:6,VARIABLE 1:6,LITERAL 1:7,LITERAL 1:10' },
+			{ code: 'y := !x', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,NOT 1:6,VARIABLE 1:7' },
+			{ code: 'y := -x', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,SUB 1:6,LITERAL 1:6,VARIABLE 1:7' },
+			{ code: '#Strict()', expected: 'DIRECTIVE 1:1' },
+			{ code: 'x := (1 + 2)', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,ADD 1:7,LITERAL 1:7,LITERAL 1:11' },
+		], async (code) => {
+			const out = [];
+			spot((await this.make_ast(code)).statements, out);
+			return out.join(',');
+		});
+		// and none of them go without, whatever they are
+		await assert([
+			{ code: '#Strict()\nclass C {\n\t__init(v := 1) {\n\t\tn := v\n\t}\n\tget() {\n\t\treturn n\n\t}\n}\nf(a, b := [1, 2]) {\n\tif (a > 1 && b) {\n\t\treturn `${a}`\n\t} else {\n\t\tloop (3) {\n\t\t\tx++\n\t\t\tcontinue\n\t\t}\n\t}\n\treturn a ? b : {"k": new C(a)}\n}\nz := f(1)\nz .= "s"\ny := %z%[0]\nw := c.get(1).x\nt := <<END\nq\nEND\nv := !w . -y\nu := "a" 5 . [1][0]\nz.k.j := f(2)', expected: 0 },
+		], async (code) => {
+			const out = [];
+			spot((await this.make_ast(code)).statements, out);
+			return out.filter(n => n.includes('undefined')).length;
+		});
+		// what an error says, the message and where, and the calls it was in
+		const said = err => err.summary + (err.line === undefined ? '' : ' @' + err.line + ':' + err.col) + (err.frames && err.frames.length ? ' [' + (err.frames.length > 4 ? err.frames.length + ' frames' : err.frames.map(f => f.name + '@' + f.line).join(',')) + ']' : '') + (err.inExec ? ' exec' : '');
+		await assert([
+			{ code: '#Strict()\nx := 1\ny := missing', expected: "Undefined variable 'missing' @3:6" },
+			{ code: '#Strict(1)\ny := missing', expected: "Undefined variable 'missing' @2:6" },
+			{ code: '#Strict()\nprint(1)\nnope(2)', expected: "Undefined function 'nope' @3:1" },
+			{ code: '#Strict()\nx := 1 + missing', expected: "Undefined variable 'missing' @2:10" },
+			{ code: '#Strict()\nx := !missing', expected: "Undefined variable 'missing' @2:7" },
+			{ code: '#Strict()\nif (missing) {\n}', expected: "Undefined variable 'missing' @2:5" },
+			{ code: '#Strict()\nx := [1, missing]', expected: "Undefined variable 'missing' @2:10" },
+			{ code: '#Strict()\no := {"a": missing}', expected: "Undefined variable 'missing' @2:12" },
+			{ code: '#Strict()\nx := `a ${missing} b`', expected: "Undefined variable 'missing' @2:11" },
+			{ code: '#Strict()\nx := missing.a', expected: "Undefined variable 'missing' @2:6" },
+			{ code: '#Strict()\nx := missing[1]', expected: "Undefined variable 'missing' @2:6" },
+			{ code: '#Strict()\nmissing++', expected: "Undefined variable 'missing' @2:1" },
+			{ code: '#Strict()\nx := 1\ny := "nm"\nz := %y%', expected: "Undefined variable 'nm' @4:6" }, // the name a deref looks up
+			{ code: '#Strict()\nx := 5\ny := x.foo()', expected: "Undefined function 'foo' @3:6" },
+			// did you mean
+			{ code: '#Strict()\nx := Uppr("a")', expected: "Undefined function 'Uppr', did you mean 'Upper'? @2:6" },
+			{ code: '#Strict()\nx := Pirnt("a")', expected: "Undefined function 'Pirnt', did you mean 'print'? @2:6" },
+			{ code: '#Strict()\nx := Strlne("a")', expected: "Undefined function 'Strlne', did you mean 'strlen'? @2:6" },
+			{ code: '#Strict()\ngreet(n) { return n }\nx := gret("a")', expected: "Undefined function 'gret', did you mean 'greet'? @3:6" }, // yours come before the builtins
+			{ code: '#Strict()\nfoo() { return 1 }\nx := Foo()', expected: "Undefined function 'Foo', did you mean 'foo'? @3:6" }, // functions are case-sensitive
+			{ code: '#Strict()\ncounter := 1\nx := countr', expected: "Undefined variable 'countr', did you mean 'counter'? @3:6" },
+			{ code: '#Strict()\ncounter := 1\nx := COUNTR', expected: "Undefined variable 'COUNTR', did you mean 'counter'? @3:6" },
+			{ code: '#Strict()\nMyCounter := 1\nx := mycountr', expected: "Undefined variable 'mycountr', did you mean 'MyCounter'? @3:6" }, // as it was written
+			{ code: '#Strict()\nx := zzzzzzzzz()', expected: "Undefined function 'zzzzzzzzz' @2:6" }, // nothing close, nothing said
+			{ code: '#Strict()\nx := nope(1)', expected: "Undefined function 'nope' @2:6" },
+			{ code: '#Strict()\ny := 1\nz := x', expected: "Undefined variable 'x' @3:6" }, // and a short name doesn't match everything
+			// runtime errors that were always there now say where
+			{ code: 'x := 1\nx := Count(true)', expected: 'INTERNAL_Count: Expected a string or an array @2:6' },
+			{ code: 'x := 1\r\ny := Count(true)', expected: 'INTERNAL_Count: Expected a string or an array @2:6' },
+			{ code: 'x := 1\ny := [1] + 1', expected: 'Unsupported type @2:6' },
+			{ code: 'x := 1\ny := new Nope()', expected: 'INTERNAL_new: no class named Nope @2:6' },
+			{ code: 'x := 1\nif (Count(true)) {\n}', expected: 'INTERNAL_Count: Expected a string or an array @2:5' },
+			{ code: 'loop (Count(true)) { }', expected: 'INTERNAL_Count: Expected a string or an array @1:7' },
+			{ code: 'x := Sum([1,\n\tCount(true)])', expected: 'INTERNAL_Count: Expected a string or an array @2:2' }, // the line of the call, not of the statement
+			{ code: 'x := 1\ny := "ok"\nz := Count(true)', expected: 'INTERNAL_Count: Expected a string or an array @3:6' },
+			{ code: 'x := "ok"', expected: 'no error' },
+			// the calls it was inside
+			{ code: '#Strict()\nf() {\n\treturn zzz\n}\nx := f()', expected: "Undefined variable 'zzz' @3:9 [f@5]" },
+			{ code: 'f() {\n\treturn Count(true)\n}\ng() {\n\treturn f()\n}\nx := g()', expected: 'INTERNAL_Count: Expected a string or an array @2:9 [g@7,f@5]' },
+			{ code: 'f(a) {\n\treturn a\n}\nx := f(Count(true))', expected: 'INTERNAL_Count: Expected a string or an array @4:8' }, // f hadn't started yet
+			{ code: 'f(n := zzz) { return n }\n#Strict()\nx := f()', expected: "Undefined variable 'zzz' @1:8 [f@3]" }, // a default runs inside the call
+			{ code: 'class T {\n\trun() {\n\t\treturn Count(true)\n\t}\n}\nt := new T()\nx := t.run()', expected: 'INTERNAL_Count: Expected a string or an array @3:10 [run@7]' },
+			{ code: 'class T {\n\t__init() {\n\t\tx := Count(true)\n\t}\n}\nt := new T()', expected: 'INTERNAL_Count: Expected a string or an array @3:8 [new T@6]' },
+			{ code: '#Strict()\nclass C {\n\tm() {\n\t\treturn nope\n\t}\n}\nc := new C()\nx := c.m()', expected: "Undefined variable 'nope' @4:10 [m@8]" },
+			// Exec counts its lines from the start of its string
+			{ code: 'Exec("x := Count(true)")', expected: 'INTERNAL_Count: Expected a string or an array @1:6 [Exec@1] exec' },
+			{ code: 'x := Exec("y := 1\\nz := Count(true)")', expected: 'INTERNAL_Count: Expected a string or an array @2:6 [Exec@1] exec' },
+			{ code: 'Exec("x := \\"abc")', expected: 'Unterminated string @1:6 [Exec@1] exec' },
+			{ code: '#Strict()\nx := Exec("return nope")', expected: "Undefined variable 'nope' @1:8 [Exec@2] exec" },
+			// runaway recursion stops at the limit with an error, not a crash
+			{ code: 'f(n) { return f(n + 1) }\nf(0)', expected: 'Recursion limit of 1000 calls reached, is f() calling itself forever? @1:15 [1000 frames]' },
+			{ code: 'f(n) { if (n <= 0) { return 0 }\nreturn 1 + f(n - 1) }\nprint(f(1000))', expected: 'Recursion limit of 1000 calls reached, is f() calling itself forever? @2:12 [1000 frames]' }, // 999 above was the deepest that fits
+			{ code: 'a(n) { return b(n) }\nb(n) { return a(n) }\na(1)', expected: 'Recursion limit of 1000 calls reached, is a() calling itself forever? @2:15 [1000 frames]' },
+			{ code: 'f(n) { if (n <= 0) { return 0 }\nreturn 1 + f(n - 1) }\nprint(f(999))', expected: 'no error' }, // and it is back to normal after one
+		], async (code) => { try { await this.assert_code(code) } catch (err) { return said(err) } return 'no error' });
+		// the helpers behind the suggestions, Levenshtein gets reused for the string one
+		await assert([
+			{ code: '|', expected: 0 },
+			{ code: 'a|', expected: 1 },
+			{ code: '|abc', expected: 3 },
+			{ code: 'abc|abc', expected: 0 },
+			{ code: 'abc|ABC', expected: 3 },
+			{ code: 'kitten|sitting', expected: 3 },
+			{ code: 'flaw|lawn', expected: 2 },
+			{ code: 'saturday|sunday', expected: 3 },
+			{ code: 'ab|ba', expected: 2 },
+			{ code: 'é|e', expected: 1 },
+		], async (code) => levenshtein(...code.split('|')));
+		await assert([
+			{ code: 'uppr|Upper,Lower', expected: 'Upper' },
+			{ code: 'UPPR|Upper,Lower', expected: 'Upper' }, // case doesn't count
+			{ code: 'pirnt|print,sort', expected: 'print' },
+			{ code: 'gret|greet,Grep', expected: 'greet' }, // a tie goes to the first
+			{ code: 'gret|Grep,greet', expected: 'Grep' },
+			{ code: 'nope|Pop,Sort', expected: null },
+			{ code: 'x|y', expected: null },
+			{ code: 'ab|a', expected: 'a' },
+			{ code: 'zzzzzzzzz|Upper', expected: null },
+			{ code: 'x|', expected: null },
+		], async (code) => nearest(code.split('|')[0], code.split('|')[1].split(',')));
+		// an error keeps the first place it was given, and stack overflows read like the others
+		await assert([
+			{ code: 'overflow', expected: 'Ran out of stack, is something calling itself forever?' },
+			{ code: 'kept', expected: 3 },
+			{ code: 'message', expected: 'boom' },
+			{ code: 'no place', expected: undefined },
+		], async (code) => {
+			if (code === 'overflow') return this.located(new RangeError('Maximum call stack size exceeded'), { line: 1, col: 1 }).summary;
+			if (code === 'kept') return this.located(Object.assign(new Error('x'), { line: 3 }), { line: 9, col: 9 }).line;
+			if (code === 'message') return this.located(new Error('boom'), { line: 1, col: 1 }).summary;
+			return this.located(new Error('boom'), {}).line;
+		});
+		// the box an error ends up in when nothing catches it
+		const boxes = [
+			{ code: 'x := 1\ny := Count(true)', has: ['Expected a string or an array', 'ln 2, col 6  y := Count(true)'] },
+			{ code: '#Strict()\nf() {\n\treturn zzz\n}\ng() {\n\treturn f()\n}\nx := g()', has: ["Undefined variable 'zzz'", 'ln 3, col 9  return zzz', 'in f() called at ln 6', 'in g() called at ln 8'] },
+			{ code: 'class T {\n\t__init() {\n\t\tx := Count(true)\n\t}\n}\nt := new T()', has: ['in new T called at ln 6'] },
+			{ code: 'f(n) { return f(n + 1) }\nf(0)', has: ['Recursion limit of 1000 calls', 'ln 1, col 15', 'in f() called at ln 1', '... 992 more'] },
+			{ code: 'Exec("x := Count(true)")', has: ['ln 1, col 6 (inside Exec)', 'in Exec() called at ln 1'] },
+			{ code: 'x := "abc', has: ['Unterminated string'] },
+			{ code: 'boom', has: ['boom'] },
+		];
+		await assert(boxes.map(b => ({ code: b.code, expected: b.has })), async (code) => {
+			const shown = [];
+			const realLog = console.log;
+			console.log = (...args) => shown.push(args.join(' '));
+			try {
+				let caught = new Error('boom');
+				if (code !== 'boom') {
+					try { await this.assert_code(code) } catch (err) { caught = err }
+				}
+				new ErrorHandler(code).handleError(caught);
+			} finally {
+				console.log = realLog;
+			}
+			const text = shown.join('\n').replace(/\u001b\[[0-9;]*m/g, '');
+			return boxes.find(b => b.code === code).has.filter(h => text.includes(h));
+		});
+		// parser errors drawn the way a real console gets them, where the width is known. anything under 5 across used to crash the drawing
+		await assert([
+			{ code: '@', expected: [true, true, true, 'ln1:'] },
+			{ code: 'print("a")\n@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxxxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxxxxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'print("a")\nxxxxxxxx@', expected: [true, true, true, 'ln2:'] },
+			{ code: 'a\nb\nc\nd\ne\nf\ng\nh\ni\n@', expected: [true, true, true, 'ln10:'] }, // two digits of line number
+		], async (code) => {
+			const shown = [];
+			const realLog = console.log;
+			const realCols = process.stdout.columns;
+			console.log = (...args) => shown.push(args.join(' '));
+			process.stdout.columns = 120;
+			try {
+				let caught = null;
+				try { await this.make_ast(code) } catch (err) { caught = err }
+				new ErrorHandler(code).handleError(caught);
+			} finally {
+				console.log = realLog;
+				process.stdout.columns = realCols;
+			}
+			const lines = shown.join('\n').replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+			const source = lines.find(l => /ln\d+: /.test(l) && l.includes('@'));
+			const caret = lines.find(l => l.includes('^ char'));
+			return [lines.join('\n').includes('Failed to parse statement.'), !lines.join('\n').includes('Invalid count'), source.indexOf('@') === caret.indexOf('^'), source.match(/ln\d+:/)[0]];
+		});
+		// and if drawing one goes wrong anyway, the error still gets shown
+		await assert([
+			{ code: 'past the end', expected: [true, true] },
+			{ code: 'no line', expected: [true, true] },
+		], async (code) => {
+			const shown = [];
+			const realLog = console.log;
+			console.log = (...args) => shown.push(args.join(' '));
+			try {
+				new ErrorHandler('x := 1').handleError(code === 'past the end' ? { summary: 'boom', statement: 'L1: x := 1', loc: '  ^', position: 99999 } : { summary: 'boom', statement: 'L1: x := 1', loc: '  ^' });
+			} finally {
+				console.log = realLog;
+			}
+			const text = shown.join('\n');
+			return [text.includes('boom'), text.includes('L1: x := 1')];
+		});
 		//     Format(N) {       
 		//     Print(S) {        
 		//     Clear(/) {        
@@ -3320,6 +3661,9 @@ class ASTExecutor {
 	async get(name, member = null) {
 		const found = this.getvar(name);
 		if (!found) {
+			if (this.settings.strict) {
+				throw new Error(this.guess('variable', name));
+			}
 			return "";
 		}
 		const value = await found.solve();
@@ -3526,7 +3870,21 @@ class ASTExecutor {
             const DICK = ItemType[ast.type];
             const CUNT = this.methods[DICK.toLowerCase()];
             if (CUNT && typeof this[CUNT] === 'function') {
-                return await this[CUNT](ast);
+                const depth = this.frames.length;
+                try {
+                    const frame = this.callframe(ast);
+                    if (frame) {
+                        this.frames.push(frame);
+                        if (depth >= this.settings.maxDepth) {
+                            throw new Error(`Recursion limit of ${this.settings.maxDepth} calls reached, is ${frame.name}() calling itself forever?`);
+                        }
+                    }
+                    return await this[CUNT](ast);
+                } catch (err) {
+                    throw this.located(err, ast);
+                } finally {
+                    this.frames.length = depth;
+                }
             } else {
                 this.print(chalk.red(`ERROR: Method "${DICK}" not found`));
             }
@@ -3535,6 +3893,57 @@ class ASTExecutor {
             this.print(ast);
         }
     }
+	// a call that runs coyote code, for the stack in an error. builtins don't get one, except Exec
+	callframe(ast) {
+		const where = { line: ast.line, col: ast.col, node: ast };
+		if (ast.type === ItemType.FUNCTION_CALL && ((this.functions[ast.name] && this.functions[ast.name].params) || String(ast.name).toLowerCase() === "exec")) {
+			return { name: ast.name, ...where };
+		}
+		if (ast.type === ItemType.METHOD_CALL) {
+			return { name: ast.func.member ? ast.func.member.value : "", ...where };
+		}
+		if (ast.type === ItemType.NEW_INSTANCE) {
+			return { name: "new " + ast.classname, ...where };
+		}
+		return null;
+	}
+	// the call in ast has its arguments worked out, so from here it is part of the stack
+	begun(ast) {
+		const top = this.frames[this.frames.length - 1];
+		if (top && top.node === ast) {
+			top.begun = true;
+		}
+	}
+	// the first node an error passes through says where it happened, and what was being called at the time
+	located(err, ast) {
+		if (err === null || typeof err !== 'object' || err.line !== undefined || ast.line === undefined) {
+			return err;
+		}
+		err.line = ast.line;
+		err.col = ast.col;
+		// a call that never got past its arguments isn't part of the stack
+		err.frames = this.frames.filter(frame => frame.begun);
+		if (err instanceof RangeError && /call stack/i.test(err.message)) {
+			err.summary = "Ran out of stack, is something calling itself forever?";
+		}
+		if (err.summary === undefined) {
+			err.summary = err.message;
+		}
+		return err;
+	}
+	// names to pick from for a did you mean. functions are the builtins, yours and the natives, variables are whatever is in scope
+	guess(kind, name) {
+		let names = [];
+		if (kind === 'function') {
+			names = Object.keys(this.functions).concat(Object.keys(this.natives), Object.keys(this.methods).filter(key => key.startsWith('internal_')).map(key => this.methods[key].substring(9)));
+		} else {
+			for (let scope = this; scope; scope = scope.parent) {
+				names.push(...Object.values(scope.vars).map(v => v.name));
+			}
+		}
+		const near = nearest(name, names);
+		return `Undefined ${kind} '${name}'` + (near ? `, did you mean '${near}'?` : '');
+	}
 	// #Name(args) directives, applied on the pre-scan. plain if-chain so more are easy to add
 	async applyDirective(statement) {
 		const key = String(statement.name).toLowerCase();
@@ -3542,6 +3951,9 @@ class ASTExecutor {
 		if (key === "arraystartindex") {
 			// #ArrayStartIndex(0) is the default, (1) makes [N] 1-based
 			this.settings.arrayStartIndex = this.numeric(values[0]) || 0;
+		} else if (key === "strict") {
+			// #Strict() turns it on, #Strict(0) off. undefined variables and functions throw instead of giving ""
+			this.settings.strict = values.length ? this.truth(values[0]) : true;
 		} else if (key === "setbatchlines") {
 			this.settings.batchLines = this.numeric(values[0]) || null;
 		} else if (key === "setbatchops") {
@@ -4692,10 +5104,12 @@ async run(ast) {
 		let correct_case_key = this.methods[name.toLowerCase()];
 		if (correct_case_key) {
 			this.print(correct_case_key)
+			this.begun(ast);
 			retval = await this[correct_case_key](ast.params);
 		} else {
 			//console.log(this.functions[ast.name].params)
 			let params = await this.execute_ast(ast.params)
+			this.begun(ast);
 			// the body gets its own scope, garbage when it returns
 			const inner = this.spawn();
 			if (this.functions[ast.name] && this.functions[ast.name].params) {
@@ -4731,6 +5145,7 @@ async run(ast) {
 			throw new Error(`INTERNAL_new: no class named ${ast.classname}`);
 		}
 		let params = await this.execute_ast(ast.params);
+		this.begun(ast);
 		// an instance is a persistent scope plus its class, so method_call() knows where to look
 		const instance = this.spawn();
 		const init = classDef.methods["__init"];
@@ -4881,6 +5296,7 @@ async run(ast) {
 				// runs on the instance's own scope, so fields stay between calls
 				const instance = target.__instance__;
 				let params = await this.execute_ast(ast.params);
+				this.begun(ast);
 				if (method.params) {
 					for (const [index, param] of method.params.entries()) {
 						let paramValue = params[index];
@@ -4899,7 +5315,7 @@ async run(ast) {
 			}
 			// not one of the class's methods, falls through to the global function with the object as first arg
 		}
-		return this.execute_ast({ type: 6, name: methodName, params: [{ type: ItemType.VALUE, value: target }, ...ast.params] })
+		return this.execute_ast({ type: 6, name: methodName, params: [{ type: ItemType.VALUE, value: target }, ...ast.params], line: ast.line, col: ast.col })
 	}
 	async concat(ast) { // 16
 		//this.print(`${this.getFunctionName()}`);
@@ -5771,12 +6187,20 @@ async INTERNAL_Rem(ast) {
 		if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0 ? 1 : 0;
 		return String(value).length === 0 ? 1 : 0;
 	}
+	// the params of IsNull and Default, a variable that was never set is just undefined so #Strict lets it by
+	async unsetparams(ast) {
+		const values = [];
+		for (const node of ast) {
+			values.push(node.type === ItemType.VARIABLE && !this.getvar(node.name) ? undefined : await this.execute_ast(node));
+		}
+		return values;
+	}
 	async INTERNAL_IsNull(ast) {
-		let values = await this.execute_ast(ast);
+		let values = await this.unsetparams(ast);
 		return this.unset(ast[0], values[0]) ? 1 : 0;
 	}
 	async INTERNAL_Default(ast) {
-		let values = await this.execute_ast(ast);
+		let values = await this.unsetparams(ast);
 		return this.unset(ast[0], values[0]) ? values[1] : values[0];
 	}
 	async INTERNAL_Purge(ast) {
@@ -5893,6 +6317,9 @@ async INTERNAL_IsFloat(ast) {
 		const free = this.natives[String(ast.name).toLowerCase()];
 		if (free) {
 			return await free(...params);
+		}
+		if (this.settings.strict) {
+			throw new Error(this.guess('function', ast.name));
 		}
 		this.print(chalk.red(`Function definition for ${ast.name} not found or missing parameters`));
 		return "";
@@ -6156,13 +6583,25 @@ async INTERNAL_IsFloat(ast) {
 	async INTERNAL_Exec(ast) {
 		// runs a string of coyote in a fresh executor sharing this scope
 		let values = await this.execute_ast(ast);
-		let tree = await this.make_ast(String(values[0]));
+		// lines in an error from in here count from the start of the string
+		const code = String(values[0]);
+		const inside = err => {
+			if (err !== null && typeof err === 'object') {
+				err.inExec = true;
+				if (err.line === undefined && err.position !== undefined) {
+					Object.assign(err, locate(code, err.position));
+				}
+				err.frames = err.frames || this.frames.slice();
+			}
+			throw err;
+		};
+		let tree = await this.make_ast(code).catch(inside);
 		// borrows this scope, hands the flags back as found so a top level return doesn't latch on
 		const mark = this.returning;
 		const loopmark = [this.breaking, this.continuing];
 		this.returning = false;
 		this.breaking = this.continuing = false;
-		const body = await this.execute_ast(tree.statements);
+		const body = await this.execute_ast(tree.statements).catch(inside);
 		const value = this.returning ? this.returned : this.removeUndefined(body)[0];
 		this.returning = mark;
 		[this.breaking, this.continuing] = loopmark;
@@ -6632,15 +7071,28 @@ drawBox(title, content, boxWidth, color) {
 		const safeCh = Math.max(start, Math.min(adjustedCh, end));
 		const beforeCh = chalk.green(Line.slice(0, safeCh - start));
 		const afterCh = chalk.red(Line.slice(safeCh - start));
-		const pointerPosition = (ch - start) - 6;
-		const pointer = ' '.repeat(pointerPosition) + '^';
-		return { Line: String(beforeCh + afterCh), pointer };
+		// under 5 in it goes off the left of the box, so the rest of the spaces come off the front instead
+		const pointerPosition = (ch - start) - 5;
+		const pointer = ' '.repeat(Math.max(pointerPosition, 0)) + '^';
+		return { Line: String(beforeCh + afterCh), pointer, pointerPosition };
 	}
 
   handleError(error) {
+	// only parser errors have a statement, the rest get the message, the line and the calls
+	if (!error || typeof error.statement !== 'string' || error.inExec) {
+		return this.handleRuntimeError(error);
+	}
+	// if drawing the parser error goes wrong, the error itself still gets shown
+	try {
+		this.handleParserError(error);
+	} catch (err) {
+		this.handleRuntimeError(error);
+	}
+  }
+	handleParserError(error) {
 	console.log(error)
 	//const ln = Number(this.uStrip(error.statement).replace(/^L(\d+):.*$/, '$1'));
-	const ln = parseInt(this.uStrip(error.statement).match(/^L(\d+):/)[1], 10) - 1;
+	const ln = parseInt(this.uStrip(error.statement).match(/^L(\d+):/)[1], 10);
 	const pos = error.position
 	if (pos !== null) {
 		const context = this.getContextLines(pos);
@@ -6656,7 +7108,7 @@ drawBox(title, content, boxWidth, color) {
 		].join('\n');
 		const errorContent = [
 		  `${chalk.gray("ln" + ln + ":")} ${context.center.Line}`,
-		  `${' '.repeat(String(ln).length + 8)} ${context.center.pointer} char: ${ch} | ln: ${ln}`,
+		  `${' '.repeat(String(ln).length + 8 + Math.min(context.center.pointerPosition, 0))} ${context.center.pointer} char: ${ch} | ln: ${ln}`,
 		  `${error.summary}`,
 		].join('\n');
 
@@ -6669,6 +7121,26 @@ drawBox(title, content, boxWidth, color) {
 		console.log(chalk.red('Error: Position not found'));
 	}
   }
+	// anything that isn't a parser error: the message, where it happened and the calls it happened inside
+	handleRuntimeError(error) {
+		const lines = [(error && (error.summary || error.message)) || String(error)];
+		if (error && error.line !== undefined) {
+			const source = error.inExec ? undefined : this.lines[error.line - 1];
+			lines.push('', `ln ${error.line}, col ${error.col}` + (error.inExec ? ' (inside Exec)' : source === undefined ? '' : '  ' + source.replace(/\r$/, '').trim()));
+			const frames = (error.frames || []).slice().reverse();
+			for (const frame of frames.slice(0, 8)) {
+				lines.push(`in ${frame.name}${String(frame.name).startsWith('new ') ? '' : '()'} called at ln ${frame.line}`);
+			}
+			if (frames.length > 8) {
+				lines.push(`... ${frames.length - 8} more`);
+			}
+		} else if (error && typeof error.statement === 'string') {
+			lines.push('', this.uStrip(error.statement), this.uStrip(error.loc));
+		} else if (error && error.stack) {
+			lines.push('', ...String(error.stack).split('\n').slice(1, 5).map(l => l.trim()));
+		}
+		console.log(this.drawBox('Error', lines.join('\n'), 0, 'red'));
+	}
 	uStrip(str = '') {
     return (str || '').replace(/\u001b\[[0-9;]*[mG]/g, '');
 }
