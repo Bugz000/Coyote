@@ -1,10 +1,11 @@
-loop (25)
-	print()
-A := 0 , B := 0,V := [[-12,-12,-12],[12,-12,-12],[12,12,-12],[-12,12,-12],[-12,-12,12],[12,-12,12],[12,12,12],[-12,12,12]],E := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]
+A := 0 , B := 0,V := [[-12,-12,-12],[12,-12,-12],[12,12,-12],[-12,12,-12],[-12,-12,12],[12,-12,12],[12,12,12],[-12,12,12]],E := [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]], F := [[[0,1,2,3],[0,0,-1]],[[5,4,7,6],[0,0,1]],[[4,0,3,7],[-1,0,0]],[[1,5,6,2],[1,0,0]],[[4,5,1,0],[0,-1,0]],[[3,2,6,7],[0,1,0]]]
+
 Loop (250) {
     cA := Cos(A), sA := Sin(A), cB := Cos(B), sB := Sin(B), P := []
-    Loop (V)
-        P := Push(P, [Round(24 + (A_Val[0] * cB + (A_Val[1] * sA + A_Val[2] * cA) * sB) * 0.95), Round(11 + (A_Val[1] * cA - A_Val[2] * sA) * 0.45)])
+    Loop (V) {
+        vRot := rotate(A_Val, A, B)
+        P := Push(P, [Round(24 + vRot[0] * 0.95), Round(11 + vRot[1] * 0.45)])
+    }
     buf := StrSplit(Repeat(" ", 1056), "")
     Loop (E) {
         p0 := P[A_Val[0]], p1 := P[A_Val[1]], dx := p1[0] - p0[0], dy := p1[1] - p0[1], s := Max(Abs(dx), Abs(dy), 1)
@@ -17,17 +18,85 @@ Loop (250) {
     A := A + 0.08, B := B + 0.12
 }
 
-
-print(func("func test!"))
-c := new Calc()
-print("class test:" c.addFive(10).round())   ; 15
-
-
-
-func(param) { 
-	return param
+Loop (250) {
+    cA := Cos(A), sA := Sin(A), cB := Cos(B), sB := Sin(B)
+    buf := StrSplit(Repeat(" ", 1056), "")
+    P := []
+    
+    Loop (V) {
+        vx := A_Val[0], vy := A_Val[1], vz := A_Val[2]
+        zt := vy * sA + vz * cA
+        P := Push(P, [Round(24 + (vx * cB + zt * sB) * 0.95), Round(11 + (vy * cA - vz * sA) * 0.45)])
+    }
+    
+    R := " .'`^\",:;Il!i><~+_-?][}{1)(|\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$"
+    
+    Loop (F) {
+        nx := A_Val[1][0], ny := A_Val[1][1], nz := A_Val[1][2]
+        zt := ny * sA + nz * cA
+        nzt := -nx * sB + zt * cB
+        
+        if (nzt > 0) {
+            nxt := nx * cB + zt * sB
+            nyt := ny * cA - nz * sA
+            
+            dot := nxt * 0.5 - nyt * 0.5 + nzt * 0.7
+            ch := Substr(R, Clamp(Round((dot + 1) * 15.5) + 1, 1, 32), 1)
+            
+            idx := A_Val[0]
+            x0 := P[idx[0]][0], y0 := P[idx[0]][1]
+            x1 := P[idx[1]][0], y1 := P[idx[1]][1]
+            x2 := P[idx[2]][0], y2 := P[idx[2]][1]
+            x3 := P[idx[3]][0], y3 := P[idx[3]][1]
+            
+            minX := Max(0, Min(x0, x1, x2, x3))
+            maxX := Min(47, Max(x0, x1, x2, x3))
+            minY := Max(0, Min(y0, y1, y2, y3))
+            maxY := Min(21, Max(y0, y1, y2, y3))
+            
+            dx0 := x1 - x0, dy0 := y1 - y0
+            dx1 := x2 - x1, dy1 := y2 - y1
+            dx2 := x3 - x2, dy2 := y3 - y2
+            dx3 := x0 - x3, dy3 := y0 - y3
+            
+            py := minY
+            while (py <= maxY) {
+                cp0 := (minX - x0) * dy0 - (py - y0) * dx0
+                cp1 := (minX - x1) * dy1 - (py - y1) * dx1
+                cp2 := (minX - x2) * dy2 - (py - y2) * dx2
+                cp3 := (minX - x3) * dy3 - (py - y3) * dx3
+                
+                px := minX
+                bIdx := py * 48 + px
+                while (px <= maxX) {
+                    if ((cp0 >= 0 && cp1 >= 0 && cp2 >= 0 && cp3 >= 0) || (cp0 <= 0 && cp1 <= 0 && cp2 <= 0 && cp3 <= 0)) {
+                        buf[bIdx] := ch
+                    }
+                    cp0 += dy0, cp1 += dy1, cp2 += dy2, cp3 += dy3
+                    bIdx++, px++
+                }
+                py++
+            }
+        }
+    }
+    
+    frameStr := ""
+    r := 0
+    while (r < 22) {
+        frameStr := frameStr . Join(Slice(buf, r * 48, (r + 1) * 48), "") . "`n"
+        r++
+    }
+    
+    Clear()
+    Print(frameStr)
+    A := A + 0.08, B := B + 0.12
 }
 
-class Calc {
-	addFive(n) { return n + 5 }
+rotate(v, A, B) {
+    cA := Cos(A), sA := Sin(A), cB := Cos(B), sB := Sin(B)
+    yt := v[1] * cA - v[2] * sA
+    zt := v[1] * sA + v[2] * cA
+    xt := v[0] * cB + zt * sB
+    nzt := -v[0] * sB + zt * cB
+    return [xt, yt, nzt]
 }
