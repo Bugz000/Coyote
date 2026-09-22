@@ -3543,6 +3543,7 @@ class ASTExecutor {
 			{ code: 'n := 5\nwhile (n < 3) { n++ }\nprint(n)', expected: '5' }, // never runs
 			{ code: 'while (0) { print(1) }\nprint("end")', expected: 'end' },
 			{ code: 'n := 0\nuntil (n >= 3) { n++ }\nprint(n)', expected: '3' },
+			{ code: 'n := 0\nuntil (n >= 1) { n++ }\nprint(n)', expected: '1' }, // until must actually stop, not just count differently from while
 			{ code: 'n := 5\nuntil (n >= 3) { n++ }\nprint(n)', expected: '5' },
 			{ code: 'n := 0\ndo { n++ } while (n < 3)\nprint(n)', expected: '3' },
 			{ code: 'n := 10\ndo { n++ } while (n < 3)\nprint(n)', expected: '11' }, // runs once, the test comes after
@@ -3598,6 +3599,7 @@ class ASTExecutor {
 			{ code: 'switch ("1.0") { case 1: print("one")\ndefault: print("other") }\nprint("end")', expected: 'one\nend' }, // and numbers are numbers
 			{ code: 'switch (9) { case 1, 2: print("low")\ndefault: print("other") }\nprint("end")', expected: 'other\nend' },
 			{ code: 'switch (2) { case 1, 2: print("low")\ndefault: print("other") }\nprint("end")', expected: 'low\nend' }, // more than one value in a case
+			{ code: 'switch (1) { case 1: print("first")\ncase 1: print("second") }\nprint("end")', expected: 'first\nend' }, // the first matching case wins, later ones with the same value don't get checked
 			{ code: 'switch (3) { case 1, 2, 3, 4: print("in") }\nprint("end")', expected: 'in\nend' },
 			{ code: 'switch (7) { default: print("only") }\nprint("end")', expected: 'only\nend' }, // just a default
 			{ code: 'switch (7) { case 1: print(1) }\nprint("end")', expected: 'end' }, // no match and no default
