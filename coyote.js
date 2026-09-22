@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const readlineSync = require('readline-sync');
 const { performance } = require('perf_hooks');
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 
 class StringToken {
 	constructor(token, description = null) {
@@ -36,7 +37,9 @@ class RegexToken {
 		return '/' + this.token.source + '/' + this.token.flags;
 	}
 }
-const debuglogtier = -1
+let debuglogtier = -1
+// runs all the assertions every time it starts, turn it off before publishing
+let debugassertionsonstartup = true
 const VARIABLE = new RegexToken(/[a-zA-Z_][a-zA-Z0-9_]*/);
 const OPERATOR_TERNARY_IF = new StringToken('?', 'Begins the true-branch of a ternary expression');
 const OPERATOR_TERNARY_ELSE = new StringToken(':', 'Separates the true and false branches of a ternary expression');
@@ -87,12 +90,22 @@ const KEYWORD_IF = new RegexToken(/if\b/i, 'Begins a conditional statement');
 const KEYWORD_ELSE = new RegexToken(/else\b/i, 'Begins the alternate branch of a conditional statement');
 const KEYWORD_LOOP = new RegexToken(/loop\b/i, 'Begins a loop statement');
 const KEYWORD_in = new RegexToken(/in\b/i, 'Introduces the collection in a for-in loop');
-const KEYWORD_FOR = new RegexToken(/for\b/i, 'Begins a for-in loop');
+const KEYWORD_FOR = new RegexToken(/for\b/i, 'Begins a for-in or for-of loop');
+const KEYWORD_OF = new RegexToken(/of\b/i, 'Introduces the collection in a for-of loop');
+const KEYWORD_AWAIT = new RegexToken(/await\b/i, 'Waits for each value in a for await loop');
 const KEYWORD_BREAK = new RegexToken(/break\b/i, 'Exits the innermost loop immediately');
 const KEYWORD_CONTINUE = new RegexToken(/continue\b/i, 'Skips to the next iteration of the innermost loop');
+const KEYWORD_WHILE = new RegexToken(/while\b/i, 'Begins a while loop, or ends a do loop');
+const KEYWORD_UNTIL = new RegexToken(/until\b/i, 'Begins an until loop, or ends a do loop');
+const KEYWORD_DO = new RegexToken(/do\b/i, 'Begins a do loop that runs once before it looks at its condition');
+const KEYWORD_SWITCH = new RegexToken(/switch\b/i, 'Begins a switch statement');
+const KEYWORD_CASE = new RegexToken(/case\b/i, 'One or more values in a switch, `case 1, 2:`');
+const KEYWORD_DEFAULT = new RegexToken(/default\b/i, 'What a switch does when no case matched');
+const KEYWORD_FALLTHROUGH = new RegexToken(/fallthrough\b/i, 'Carries on into the next case of a switch');
 const KEYWORD_RETURN = new RegexToken(/return\b/i, 'Returns a value from a function');
 const KEYWORD_CLASS = new RegexToken(/class\b/i, 'Begins a class definition');
 const KEYWORD_NEW = new RegexToken(/new\b/i, 'Constructs a new instance of a class');
+const OPERATOR_RANGE = new StringToken('..', 'Range, `1..10` or `1..10..2` for every 2nd');
 const OPERATOR_HASH = new StringToken('#', 'Begins a top-of-script directive - #Name(args)');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
@@ -103,7 +116,8 @@ var ItemType;
 	ItemType[ItemType["ASSIGNMENT"] = 0] = "ASSIGNMENT";
 	ItemType[ItemType["IF"] = 1] = "IF";
 	ItemType[ItemType["LOOP"] = 2] = "LOOP";
-	ItemType[ItemType["FOR"] = 31] = "FOR";
+	ItemType[ItemType["FOR_IN"] = 31] = "FOR_IN";
+	ItemType[ItemType["FOR_OF"] = 44] = "FOR_OF";
 	ItemType[ItemType["BREAK"] = 32] = "BREAK";
 	ItemType[ItemType["CONTINUE"] = 41] = "CONTINUE";
 	ItemType[ItemType["NOT"] = 42] = "NOT";
@@ -146,6 +160,11 @@ var ItemType;
 	ItemType[ItemType["CLASS_DEFINITION"] = 39] = "CLASS_DEFINITION";
 	ItemType[ItemType["NEW_INSTANCE"] = 40] = "NEW_INSTANCE";
 	ItemType[ItemType["TEMPLATE"] = 43] = "TEMPLATE";
+	ItemType[ItemType["RANGE"] = 45] = "RANGE";
+	ItemType[ItemType["WHILE"] = 46] = "WHILE";
+	ItemType[ItemType["DO_WHILE"] = 47] = "DO_WHILE";
+	ItemType[ItemType["SWITCH"] = 48] = "SWITCH";
+	ItemType[ItemType["FALLTHROUGH"] = 49] = "FALLTHROUGH";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -366,6 +385,12 @@ class CoyoteParser extends Parser {
 		const start = this.position;
 		const statement = this.parse_statement_if()
 			.or(() => this.parse_statement_loop())
+			.or(() => this.parse_statement_for())
+			.or(() => this.parse_statement_while())
+			.or(() => this.parse_statement_do())
+			.or(() => this.parse_statement_switch())
+			.or(() => this.parse_statement_fallthrough())
+			.or(() => this.parse_statement_label())
 			.or(() => this.parse_statement_return())
 			.or(() => this.parse_statement_break())
 			.or(() => this.parse_statement_continue())
@@ -404,6 +429,10 @@ class CoyoteParser extends Parser {
 			const cOp = (operator, type, deltaValue) => {
 				if (lookahead_parser.scan(operator).found()) {
 					if (lookahead_parser.scan(operator).found()) {
+						// x.. on its own is an append of nothing, n..10 is a range
+						if (operator === OPERATOR_DOT && !/^[ \t]*(\r?\n|$|[,;)}])/.test(lookahead_parser.input.slice(lookahead_parser.position))) {
+							return null
+						}
 						this.sync_to(lookahead_parser)
 						return this.found(cR(type, { type: ItemType.LITERAL, value: deltaValue }))
 					} else if (lookahead_parser.scan(OPERATOR_EQUAL).found()) {
@@ -592,21 +621,43 @@ class CoyoteParser extends Parser {
 			});
 		}
     }
+	// for (x in expr), for (x of expr) and for await (x of expr)
 	parse_statement_for() {
-		if (this.scan(KEYWORD_FOR).not_found()) {
+		this.log('parse_statement_for');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_FOR).not_found()) {
 			return this.not_found();
 		}
-		const count = this.parse_expression().or_else_throw('Expected arr after for');
-		this.scan(OPERATOR_COMMA).or_else_throw('incomplete FOR statement');
-		this.scan(WHITESPACE);
-		
-		this.parse_eol();
-		const statements = this.parse_block_or_statement().or_else_throw('Expected statement or block after loop');
+		lookahead_parser.scan(WHITESPACE);
+		const wait = lookahead_parser.scan(KEYWORD_AWAIT).found();
+		lookahead_parser.scan(WHITESPACE);
+		if (lookahead_parser.scan(OPERATOR_LPAREN).not_found()) {
+			return this.not_found();
+		}
+		lookahead_parser.scan(WHITESPACE);
+		const varname = lookahead_parser.scan(VARIABLE);
+		lookahead_parser.scan(WHITESPACE);
+		// looked for before the expression is, whitespace is concat and would swallow "x in"
+		const kind = lookahead_parser.scan(KEYWORD_in).or(() => lookahead_parser.scan(KEYWORD_OF));
+		if (varname.not_found() || kind.not_found()) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const iterable = this.parse_expression().or_else_throw(`Expected expression after '${kind.get()}'`);
+		this.scan(OPERATOR_RPAREN).or_else_throw(`Expected ')' after for`);
+		const brace = this.copy();
+		if (brace.scan(OPERATOR_LBRACE).not_found()) {
+			brace.parse_eol()
+			this.sync_to(brace)
+		}
+		const statements = this.parse_block_or_statement().or_else_throw('Expected statement or block after for');
 		return this.found({
-			type: ItemType.LOOP,
-			count,
-			statements
-		}).or_else_throw(`Invalid use of LOOP.`);
+			type: kind.get().toLowerCase() === 'in' ? ItemType.FOR_IN : ItemType.FOR_OF,
+			variable: varname.get(),
+			iterable,
+			statements,
+			wait
+		});
 	}
 	parse_statement_return() {
 		if (this.scan(KEYWORD_RETURN).not_found()) {
@@ -619,17 +670,161 @@ class CoyoteParser extends Parser {
 			type: ItemType.RETURN
 		}));
 	}
+	// the loop a break or continue is for, on the same line: break outer
+	parse_jump_target() {
+		const lookahead_parser = this.copy();
+		lookahead_parser.scan(WHITESPACE);
+		const name = lookahead_parser.scan(VARIABLE);
+		if (name.not_found() || name.get().toLowerCase() === 'else') {
+			return null;
+		}
+		this.sync_to(lookahead_parser);
+		return name.get();
+	}
 	parse_statement_break() {
 		if (this.scan(KEYWORD_BREAK).not_found()) {
 			return this.not_found();
 		}
-		return this.found({type: ItemType.BREAK});
+		return this.found({type: ItemType.BREAK, target: this.parse_jump_target()});
 	}
 	parse_statement_continue() {
 		if (this.scan(KEYWORD_CONTINUE).not_found()) {
 			return this.not_found();
 		}
-		return this.found({type: ItemType.CONTINUE});
+		return this.found({type: ItemType.CONTINUE, target: this.parse_jump_target()});
+	}
+	// while (cond) and until (cond), until is while the other way round
+	parse_statement_while() {
+		this.log('parse_statement_while');
+		const lookahead_parser = this.copy();
+		const kind = lookahead_parser.scan(KEYWORD_WHILE).or(() => lookahead_parser.scan(KEYWORD_UNTIL));
+		lookahead_parser.scan(WHITESPACE);
+		// while on its own is still a name
+		if (kind.not_found() || lookahead_parser.input[lookahead_parser.position] !== '(') {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const condition = this.parse_expression().or_else_throw(`Expected condition after ${kind.get()}`);
+		const brace = this.copy();
+		if (brace.scan(OPERATOR_LBRACE).not_found()) {
+			brace.parse_eol()
+			this.sync_to(brace)
+		}
+		const statements = this.parse_block_or_statement().or_else_throw(`Expected statement or block after ${kind.get()}`);
+		return this.found({
+			type: ItemType.WHILE,
+			condition,
+			statements,
+			until: kind.get().toLowerCase() === 'until'
+		});
+	}
+	// do { } while (cond) and do { } until (cond), the body runs before the condition is looked at
+	parse_statement_do() {
+		this.log('parse_statement_do');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_DO).not_found() || /^[ \t]*(:=|=|\.|\()/.test(lookahead_parser.input.slice(lookahead_parser.position))) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const brace = this.copy();
+		if (brace.scan(OPERATOR_LBRACE).not_found()) {
+			brace.parse_eol()
+			this.sync_to(brace)
+		}
+		const statements = this.parse_block_or_statement().or_else_throw('Expected statement or block after do');
+		this.parse_eol();
+		const kind = this.scan(KEYWORD_WHILE).or(() => this.scan(KEYWORD_UNTIL)).or_else_throw('Expected while or until after do');
+		const condition = this.parse_expression().or_else_throw(`Expected condition after ${kind}`);
+		return this.found({
+			type: ItemType.DO_WHILE,
+			condition,
+			statements,
+			until: kind.toLowerCase() === 'until'
+		});
+	}
+	// switch (value) { case 1, 2: ... default: ... }, no falling into the next case unless it says fallthrough
+	parse_statement_switch() {
+		this.log('parse_statement_switch');
+		const lookahead_parser = this.copy();
+		lookahead_parser.scan(KEYWORD_SWITCH);
+		const keyword = lookahead_parser.position > this.position;
+		lookahead_parser.scan(WHITESPACE);
+		if (!keyword || lookahead_parser.input[lookahead_parser.position] !== '(') {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const subject = this.parse_expression().or_else_throw('Expected a value after switch');
+		const skip = () => {
+			while (this.scan(WHITESPACE).found() || this.scan(LINE_COMMENT).found() || this.scan(NEWLINE).found()) {}
+		};
+		skip();
+		this.scan(OPERATOR_LBRACE).or_else_throw(`Expected '{' after switch`);
+		const cases = [];
+		while (true) {
+			skip();
+			if (this.scan(OPERATOR_RBRACE).found()) {
+				break;
+			}
+			const isdefault = this.scan(KEYWORD_DEFAULT).found();
+			const values = [];
+			if (!isdefault) {
+				this.scan(KEYWORD_CASE).or_else_throw(`Expected case, default or '}' in switch`);
+				do {
+					values.push(this.parse_expression().or_else_throw(`Expected a value after case`));
+				} while (this.scan(OPERATOR_COMMA).found());
+			}
+			this.scan(WHITESPACE);
+			this.scan(OPERATOR_COLON).or_else_throw(`Expected ':' after case`);
+			const statements = [];
+			while (true) {
+				skip();
+				const peek = this.copy();
+				if (peek.scan(OPERATOR_RBRACE).found() || peek.scan(KEYWORD_CASE).found() || peek.scan(KEYWORD_DEFAULT).found()) {
+					break;
+				}
+				const statement = this.parse_statement();
+				if (statement.found()) {
+					statements.push(statement.get());
+				}
+			}
+			cases.push({ values, statements, isdefault });
+		}
+		return this.found({
+			type: ItemType.SWITCH,
+			subject,
+			cases
+		});
+	}
+	parse_statement_fallthrough() {
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_FALLTHROUGH).not_found()) {
+			return this.not_found();
+		}
+		// fallthrough on its own is still a name
+		if (/^[ \t]*(:=|=|\.|\()/.test(lookahead_parser.input.slice(lookahead_parser.position))) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		return this.found({type: ItemType.FALLTHROUGH});
+	}
+	// outer: loop (3) { break outer }, a name and a colon in front of a loop
+	parse_statement_label() {
+		this.log('parse_statement_label');
+		const lookahead_parser = this.copy();
+		const name = lookahead_parser.scan(VARIABLE);
+		lookahead_parser.scan(WHITESPACE);
+		if (name.not_found() || lookahead_parser.scan(OPERATOR_COLON).not_found() || lookahead_parser.input[lookahead_parser.position] === '=') {
+			return this.not_found();
+		}
+		lookahead_parser.parse_eol();
+		const loop = lookahead_parser.parse_statement_loop()
+			.or(() => lookahead_parser.parse_statement_for())
+			.or(() => lookahead_parser.parse_statement_while())
+			.or(() => lookahead_parser.parse_statement_do())
+			.or_else_throw('Expected a loop after the label');
+		this.sync_to(lookahead_parser);
+		loop.label = name.get();
+		return this.found(loop);
 	}
 	parse_statement_function_definition() {
 		this.log('parse_statement_function_definition');
@@ -786,8 +981,17 @@ class CoyoteParser extends Parser {
 		if (assign.found()) {
 			return assign;
 		}
-		const expr = this.parse_binary_op(0);
+		let expr = this.parse_binary_op(0);
 		this.scan(WHITESPACE);
+		// 1..10 and 1..10..2, the step is the last part
+		if (expr.found() && this.scan(OPERATOR_RANGE).found()) {
+			this.scan(WHITESPACE);
+			const end = this.parse_binary_op(0).or_else_throw(`Expected expression after '..'`);
+			this.scan(WHITESPACE);
+			const step = this.scan(OPERATOR_RANGE).found() ? (this.scan(WHITESPACE), this.parse_binary_op(0)).or_else_throw(`Expected expression after '..'`) : null;
+			this.scan(WHITESPACE);
+			expr = this.found({ type: ItemType.RANGE, start: expr.get(), end, step });
+		}
 		//console.log(expr)
 		// cond ? a : b sits below everything else
 		if (expr.found() && this.scan(OPERATOR_TERNARY_IF).found()) {
@@ -846,6 +1050,10 @@ class CoyoteParser extends Parser {
 				const lookahead_parser = this.copy();
 				lookahead_parser.scan(WHITESPACE);
 				if (lookahead_parser.scan(op.token).found()) {
+					// a dot straight after a dot is a range, not a concat
+					if (op.type === ItemType.CONCAT && lookahead_parser.input[lookahead_parser.position] === '.') {
+						continue;
+					}
 									//console.log(op)
 					this.sync_to(lookahead_parser);
 					this.scan(WHITESPACE);
@@ -871,6 +1079,10 @@ class CoyoteParser extends Parser {
 			const lookahead_parser = this.copy();
 			const concat_op = lookahead_parser.scan(OPERATOR_CONCAT);
 			if (concat_op.found()) {
+				// a dot straight after a dot is a range
+				if (concat_op.get() === '.' && lookahead_parser.input[lookahead_parser.position] === '.') {
+					return left;
+				}
 				// a space on its own isn't necessarily concat, could be trailing whitespace
 				const right = lookahead_parser.parse_operator_concat();
 				if (concat_op.get() === '.') {
@@ -1194,6 +1406,9 @@ class CoyoteParser extends Parser {
     }
 	parse_member_access_expression() {
 		this.log("parse_member_access_expression");
+		if (this.input.startsWith('..', this.position)) {
+			return this.not_found();
+		}
 		var lookahead_parser = this.copy();
 		if (lookahead_parser.scan(OPERATOR_DOT).found()) {
 			this.sync_to(lookahead_parser);
@@ -1424,6 +1639,10 @@ function print_nodes(nodes, prefix = '') {
 	}
 	return output;
 }
+// the label a loop was given, for the tree
+function labelled(s) {
+	return s.label ? chalk.gray(' ' + s.label + ':') : '';
+}
 function print_Coyote_tree(t) {
 	return print_nodes(convert_statements(t.statements));
 }
@@ -1464,9 +1683,36 @@ function convert_statement(s) {
 			}, ],
 		};
 	}
-	if (s.type === ItemType.LOOP) {
+	if (s.type === ItemType.WHILE || s.type === ItemType.DO_WHILE) {
+		return {
+			name: chalk.cyan(ItemType[s.type]) + (s.until ? chalk.gray(' until') : '') + labelled(s),
+			children: [{
+				name: chalk.gray('condition'),
+				children: [convert_expression(s.condition)]
+			}, {
+				name: chalk.gray('statements'),
+				children: convert_statements(s.statements),
+			}, ],
+		};
+	}
+	if (s.type === ItemType.SWITCH) {
 		return {
 			name: chalk.cyan(ItemType[s.type]),
+			children: [{
+				name: chalk.gray('subject'),
+				children: [convert_expression(s.subject)]
+			}].concat(s.cases.map(c => ({
+				name: chalk.gray(c.isdefault ? 'default' : 'case'),
+				children: c.values.map(convert_expression).concat([{
+					name: chalk.gray('statements'),
+					children: convert_statements(c.statements),
+				}]),
+			}))),
+		};
+	}
+	if (s.type === ItemType.LOOP) {
+		return {
+			name: chalk.cyan(ItemType[s.type]) + labelled(s),
 			children: [{
 				name: chalk.gray('count'),
 				children: [convert_expression(s.count)]
@@ -1485,7 +1731,26 @@ function convert_statement(s) {
 			}] : []
 		};
 	}
+	if (s.type === ItemType.FOR_IN || s.type === ItemType.FOR_OF) {
+		return {
+			name: chalk.cyan(ItemType[s.type]) + (s.wait ? chalk.gray(' await') : '') + labelled(s),
+			children: [{
+				name: chalk.gray('variable') + ' ' + s.variable
+			}, {
+				name: chalk.gray('iterable'),
+				children: [convert_expression(s.iterable)]
+			}, {
+				name: chalk.gray('statements'),
+				children: convert_statements(s.statements),
+			}, ],
+		};
+	}
 	if (s.type === ItemType.BREAK || s.type === ItemType.CONTINUE) {
+		return {
+			name: chalk.cyan(ItemType[s.type]) + (s.target ? ' ' + s.target : ''),
+		};
+	}
+	if (s.type === ItemType.FALLTHROUGH) {
 		return {
 			name: chalk.cyan(ItemType[s.type]),
 		};
@@ -1695,6 +1960,12 @@ function convert_expression(e) {
 			}],
 		};
 	}
+	if (e.type === ItemType.RANGE) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [convert_expression(e.start), convert_expression(e.end)].concat(e.step ? [convert_expression(e.step)] : []),
+		};
+	}
 	if (e.type === ItemType.TEMPLATE) {
 		return {
 			name: chalk.cyanBright(ItemType[e.type]),
@@ -1740,7 +2011,17 @@ class CoyoteVar {
 			params: [this.ast, ...nodes]
 		});
 	}
+	// a var that works itself out every time it is read, A_currentTime and the like
+	static live(owner, name, getter) {
+		const live = new CoyoteVar(owner, name, { type: ItemType.VALUE, value: undefined });
+		live.getter = getter;
+		return live;
+	}
 	async solve() {
+		if (this.getter) {
+			this.solved = this.getter();
+			return this.solved;
+		}
 		if (this.ast.type === ItemType.VALUE) {
 			this.solved = this.ast.value;
 			return this.solved;
@@ -1753,9 +2034,13 @@ class CoyoteVar {
 		return this.solve().then(good, bad);
 	}
 	raw() {
+		if (this.getter) {
+			return this.getter();
+		}
 		return this.ast.type === ItemType.VALUE ? this.ast.value : this.solved;
 	}
 	store(value) {
+		this.getter = null;
 		this.ast = { type: ItemType.VALUE, value: value };
 		this.solved = value;
 		return this;
@@ -1791,7 +2076,7 @@ class CoyoteVar {
 }
 
 class ASTExecutor {
-	constructor(parent = null) {
+	constructor(parent = null, quiet = false) {
 		this.parent = parent;
 		this.vars = {};
 		this.returning = false;
@@ -1804,6 +2089,10 @@ class ASTExecutor {
 		this.classes = parent ? parent.classes : {};
 		this.settings = parent ? parent.settings : { arrayStartIndex: 0, batchLines: null, batchOps: null, strict: false, maxDepth: 1000 };
 		this.frames = parent ? parent.frames : [];
+		// which loop a break or continue is heading for, and the labels of the loops it is inside
+		this.jumplabel = null;
+		this.labels = [];
+		this.falling = false;
 		this.debug = 11111111111110;
 		this.initialising = true;
 		this.methods = parent ? parent.methods : Object.getOwnPropertyNames(ASTExecutor.prototype)
@@ -1819,9 +2108,22 @@ class ASTExecutor {
 		CoyoteVar.bind(ASTExecutor.prototype);
 		// asserts read A_pi, so it has to exist first
 		this.set("A_pi", 3.141592653589793238462643383279502288419716939937);
-		console.log("Verifying asserts")
-		// kept so the script can wait for the asserts - they swap console.log and share the root scope
-		this.verified = this.verifyInternalFunctions()
+		// what run() was given, PrintScript, PrintAST and the A_script vars read it from the root
+		this.ast = null;
+		this.source = "";
+		this.script = "";
+		// the run() function has no use for the asserts or the banner
+		if (quiet) {
+			this.verified = Promise.resolve()
+			return;
+		}
+		if (debugassertionsonstartup) {
+			console.log("Verifying asserts")
+			// they swap console.log, so each worker has its own
+			this.verified = this.verifyInWorkers()
+		} else {
+			this.verified = Promise.resolve()
+		}
 		console.log("AST Executor Initialised.")
 		console.log("Script Start.")
 		console.log(" ")
@@ -1873,7 +2175,18 @@ class ASTExecutor {
 		}
 		return printed.length ? printed.join('\n') : result[result.length - 1]
 	}
-	async verifyInternalFunctions() {
+	// the assertions get shared out between workers, one per core, so they run alongside the script
+	verifyInWorkers() {
+		const parts = Math.min(require("os").cpus().length, 8);
+		return Promise.all(Array.from({ length: parts }, (_, part) => new Promise((resolve, reject) => {
+			const worker = new Worker(__filename, { workerData: { part, parts } });
+			worker.on('message', (result) => result.ok ? resolve() : reject({ summary: result.message }));
+			worker.on('error', reject);
+			worker.on('exit', resolve);
+		})));
+	}
+	// part and parts are which share of the assertions this one runs, all of them by default
+	async verifyInternalFunctions(part = 0, parts = 1) {
 		// snapshot of the default settings for the assertions
 		this.__defaultSettings = { ...this.settings };
 		// unit tests
@@ -3148,6 +3461,182 @@ class ASTExecutor {
 			{ code: 'f(n) { if (n <= 0) { return 0 }\nreturn 1 + f(n - 1) }\nprint(f(999))', expected: '999' }, // deep is fine up to the limit
 			{ code: 'a(n) { if (n <= 0) { return 0 }\nreturn 1 + b(n - 1) }\nb(n) { return 1 + a(n - 1) }\nprint(a(400))', expected: '400' },
 			
+			// for in and for of
+			{ code: 'arr := [10, 20, 30]\ns := ""\nfor (x of arr) { s := s . x . "," }\nprint(s)', expected: '10,20,30,' },
+			{ code: 'arr := [10, 20, 30]\ns := ""\nfor (k in arr) { s := s . k . "," }\nprint(s)', expected: '0,1,2,' }, // in gives the keys, as strings
+			{ code: 'for (k in [10]) { print(k === "0") }\nfor (k in [10]) { print(k === 0) }\nprint("end")', expected: 'true\nfalse\nend' },
+			{ code: 's := ""\nfor (x of "abc") { s := s . x . "-" }\nprint(s)', expected: 'a-b-c-' },
+			{ code: 's := ""\nfor (x in "abc") { s := s . x }\nprint(s)', expected: '012' }, // indexes for a string
+			{ code: 'o := {"a": 1, "b": 2}\ns := ""\nfor (k in o) { s := s . k . o[k] }\nprint(s)', expected: 'a1b2' },
+			{ code: 'o := {"a": 1, "b": 2}\nfor (k in o) { print(A_Key . A_Val) }\nprint("end")', expected: 'a1\nb2\nend' },
+			{ code: '#ArrayStartIndex(1)\ns := ""\nfor (k in [5, 6, 7]) { s := s . k }\nprint(s)', expected: '123' }, // keys count from the start index
+			{ code: '#ArrayStartIndex(1)\ns := ""\nfor (k in "ab") { s := s . k }\nprint(s)', expected: '12' },
+			{ code: '#ArrayStartIndex(1)\narr := [5, 6]\nfor (k in arr) { print(arr[k]) }', expected: '5\n6' },
+			{ code: '#ArrayStartIndex(1)\nfor (x of [5, 6]) { print(A_Key . A_Val) }', expected: '15\n26' },
+			{ code: '#ArrayStartIndex(1)\nfor (k in [5, 6]) { print(A_Key . A_Val) }', expected: '15\n26' },
+			{ code: 'for (x of [7, 8]) { print(A_Index . ":" . A_Key . ":" . A_Val) }\nprint("end")', expected: '1:0:7\n2:1:8\nend' },
+			{ code: 'for (k in {"p": 3}) { print(A_Index . ":" . A_Key . ":" . A_Val . ":" . k) }\nprint("end")', expected: '1:p:3:p\nend' },
+			{ code: 'n := 0\nfor (x in null) { n++ }\nfor (x in 5) { n++ }\nfor (x in undefined) { n++ }\nprint(n)', expected: '0' }, // in over nothing runs nothing
+			{ code: 'n := 0\nfor (x in []) { n++ }\nfor (x of []) { n++ }\nfor (x of "") { n++ }\nprint(n)', expected: '0' },
+			{ code: 'for (x in [1, 2]) { y := x }\nprint(x . y)', expected: '11' }, // the variable is left as it was
+			{ code: 'arr := [1]\nn := 0\nfor (x of arr) { n++\nif (n < 4) { Push(arr, x + 1) } }\nprint(n)', expected: '4' }, // of is live, pushing as you go adds to it
+			{ code: 'arr := [1]\nn := 0\nloop (arr) { n++\nif (n < 4) { Push(arr, 9) } }\nprint(n)', expected: '1' }, // loop is a snapshot
+			{ code: 'arr := [1, 2]\nn := 0\nfor (k in arr) { n++\nPush(arr, 9) }\nprint(n)', expected: '2' }, // and in takes its keys first
+			{ code: 's := ""\nfor (i of [1, 2, 3, 4]) { if (i == 2) { continue }\nif (i == 4) { break }\ns := s . i }\nprint(s)', expected: '13' },
+			{ code: 's := ""\nfor (k in [1, 2, 3, 4]) { if (k == 1) { continue }\nif (k == 3) { break }\ns := s . k }\nprint(s)', expected: '02' },
+			{ code: 'f() { for (i of [5, 6, 7]) { if (i == 6) { return i * 10 } } }\nprint(f())', expected: '60' },
+			{ code: 'f() { for (k in {"a": 1, "b": 2}) { if (k == "b") { return k } } }\nprint(f())', expected: 'b' },
+			{ code: 's := ""\nfor (i of [1, 2]) { for (j of ["a", "b"]) { if (j == "b") { break }\ns := s . i . j . " " } }\nprint(s)', expected: '1a 2a ' }, // break leaves the inner one
+			{ code: 's := ""\nfor (i of [1, 2]) { for (j in [5, 6]) { s := s . i . j } }\nprint(s)', expected: '10112021' },
+			{ code: 's := ""\nfor (i of [1, 2]) { s := s . i }\nloop (2) { s := s . A_Index }\nprint(s)', expected: '1212' }, // loop and for share A_Index but don't get in each other's way
+			{ code: 's := ""\nfor (x of [1, 2]) s := s . x\nprint(s)', expected: '12' }, // one statement, no block
+			{ code: 's := ""\nfor(x of [1, 2])\n{\n\ts := s . x\n}\nprint(s)', expected: '12' },
+			{ code: 's := ""\nFor (X Of [4]) { s := s . x }\nprint(s)', expected: '4' }, // keywords ignore case
+			{ code: 'for := 5\nprint(for)', expected: '5' }, // for on its own is still a name
+			{ code: 'forest := 1\nfor_x := 2\nprint(forest + for_x)', expected: '3' },
+			{ code: 'in := 1\nprint(in)', expected: '1' },
+			{ code: 's := ""\nfor await (x of [1, 2]) { s := s . x }\nprint(s)', expected: '12' },
+			{ code: 'class C { __init() { a := 1\nb := 2 } }\nc := new C()\ns := ""\nfor (k in c) { s := s . k . A_Val }\nprint(s)', expected: 'a1b2' }, // an instance gives its fields
+			{ code: 'print(Json(Entries({"a": 1, "b": 2})))\nprint(Json(Entries([5, 6])))\nprint(Json(Entries("ab")))\nprint(Json(Entries(7)))\nprint(Json(Entries(null)))', expected: '[["a",1],["b",2]]\n[[0,5],[1,6]]\n[[0,"a"],[1,"b"]]\n[]\n[]' },
+			{ code: '#ArrayStartIndex(1)\nprint(Json(Entries([5, 6])))', expected: '[[1,5],[2,6]]' },
+			{ code: 's := ""\nfor (e of Entries({"a": 1})) { s := s . e[0] . e[1] }\nprint(s)', expected: 'a1' },
+			
+			// ranges, 1..10 is Range(1, 10) and 1..10..2 steps
+			{ code: 'x := 1..4\nprint(Json(x))', expected: '[1,2,3,4]' },
+			{ code: 'a := Json(Range(1, 4))\nprint(a == Json(1..4))', expected: 'true' },
+			{ code: 'x := 1 .. 4\nprint(Json(x))', expected: '[1,2,3,4]' }, // spaces are fine
+			{ code: 'x := 1..9..2\nprint(Json(x))', expected: '[1,3,5,7,9]' }, // from, to, step
+			{ code: 'x := 10..1..-3\nprint(Json(x))', expected: '[10,7,4,1]' },
+			{ code: 'x := 5..1\nprint(Json(x))', expected: '[]' }, // same as Range(5, 1)
+			{ code: 'x := 3..3\nprint(Json(x))', expected: '[3]' },
+			{ code: 'x := 0..1..0.25\nprint(Json(x))', expected: '[0,0.25,0.5,0.75,1]' },
+			{ code: 'x := 0..0.3..0.1\nprint(Count(x))', expected: '4' }, // a step that doesn't add up exactly still gets its last value
+			{ code: 'x := 1.5..4\nprint(Json(x))', expected: '[1.5,2.5,3.5]' },
+			{ code: 'x := -2..2\nprint(Json(x))', expected: '[-2,-1,0,1,2]' },
+			{ code: 'x := 0x1..0b11\nprint(Json(x))', expected: '[1,2,3]' },
+			{ code: 'n := 3\nx := 1..n\nprint(Json(x))', expected: '[1,2,3]' }, // a variable next to the dots
+			{ code: 'n := 2\nx := n..4\nprint(Json(x))', expected: '[2,3,4]' },
+			{ code: 'a := 1\nb := 3\nx := a+1..b*2\nprint(Json(x))', expected: '[2,3,4,5,6]' }, // arithmetic on both ends
+			{ code: 'o := {"n": 2}\nx := 1..o.n\nprint(Json(x))', expected: '[1,2]' },
+			{ code: 'x := 1..Count([1, 2, 3])\nprint(Json(x))', expected: '[1,2,3]' },
+			{ code: 'x := "1".."3"\nprint(Json(x))', expected: '[1,2,3]' }, // numeric strings are numbers
+			{ code: 'x := 1 > 2 ? 1..2 : 5..6\nprint(Json(x))', expected: '[5,6]' }, // ranges sit just above the ternary
+			{ code: 'x := Sum(1..10)\nprint(x)', expected: '55' },
+			{ code: 'x := Count(1..100)\nprint(x)', expected: '100' },
+			{ code: 'x := [1..3, 4..5]\nprint(Json(x))', expected: '[[1,2,3],[4,5]]' },
+			{ code: 'f(a) { return Count(a) }\nprint(f(1..7))', expected: '7' },
+			{ code: 's := ""\nfor (i of 1..5) { s := s . i }\nprint(s)', expected: '12345' },
+			{ code: 's := ""\nfor (i of 10..1..-3) { s := s . i . "," }\nprint(s)', expected: '10,7,4,1,' },
+			{ code: 's := ""\nfor (i of 5..1) { s := s . i }\nprint(s . "|")', expected: '|' }, // an empty range is no iterations
+			{ code: 's := ""\nfor (i of 1..6) { if (i == 3) { continue }\nif (i == 5) { break }\ns := s . i }\nprint(s)', expected: '124' },
+			{ code: 's := ""\nfor (i in 1..3) { s := s . i }\nprint(s)', expected: '012' },
+			{ code: 's := ""\nloop (1..3) { s := s . A_Val }\nprint(s)', expected: '123' },
+			{ code: 'x := 5\nx..\nprint(x)', expected: '5' }, // x.. on its own is still an append of nothing
+			{ code: 'x := 5\nx.. ; note\nprint(x)', expected: '5' },
+			{ code: 'x := "a"\ny := x . "b" . "c"\nprint(y)', expected: 'abc' }, // and the concat dot is what it was
+			{ code: 'x := "a"\ny := x.b\nprint(y . "|")', expected: '|' },
+			{ code: 'o := {"b": 4}\nprint(o.b .. 5)', expected: '4,5' },
+			{ code: 'x := 1.5 . 2\nprint(x)', expected: '1.52' },
+			
+			// while, until and do
+			{ code: 'n := 0\nwhile (n < 3) { n++ }\nprint(n)', expected: '3' },
+			{ code: 'n := 5\nwhile (n < 3) { n++ }\nprint(n)', expected: '5' }, // never runs
+			{ code: 'while (0) { print(1) }\nprint("end")', expected: 'end' },
+			{ code: 'n := 0\nuntil (n >= 3) { n++ }\nprint(n)', expected: '3' },
+			{ code: 'n := 5\nuntil (n >= 3) { n++ }\nprint(n)', expected: '5' },
+			{ code: 'n := 0\ndo { n++ } while (n < 3)\nprint(n)', expected: '3' },
+			{ code: 'n := 10\ndo { n++ } while (n < 3)\nprint(n)', expected: '11' }, // runs once, the test comes after
+			{ code: 'n := 0\ndo { n++ } until (n >= 4)\nprint(n)', expected: '4' },
+			{ code: 'n := 10\ndo { n++ } until (n >= 4)\nprint(n)', expected: '11' },
+			{ code: 'n := 0\ndo\n{\n\tn++\n}\nwhile (n < 2)\nprint(n)', expected: '2' },
+			{ code: 'n := 0\nwhile (n < 5) { n++\nif (n == 2) { continue }\nif (n == 4) { break }\nprint(n) }', expected: '1\n3' },
+			{ code: 'n := 0\nuntil (n >= 5) { n++\nif (n == 2) { continue }\nif (n == 4) { break }\nprint(n) }', expected: '1\n3' },
+			{ code: 'n := 0\ndo { n++\nif (n == 2) { continue }\nprint(n) } while (n < 3)', expected: '1\n3' }, // continue goes to the test
+			{ code: 'n := 0\ndo { n++\nif (n == 2) { break }\nprint(n) } while (n < 5)', expected: '1' },
+			{ code: 'n := 0\nwhile (n < 3) { n++\nprint(A_Index) }', expected: '1\n2\n3' },
+			{ code: 'n := 0\ndo { n++\nprint(A_Index) } while (n < 2)', expected: '1\n2' },
+			{ code: 'f() { n := 0\nwhile (1) { n++\nif (n == 3) { return n } } }\nprint(f())', expected: '3' },
+			{ code: 'f() { n := 0\ndo { n++\nif (n == 3) { return n * 2 } } while (1) }\nprint(f())', expected: '6' },
+			{ code: 's := ""\nn := 0\nwhile (n < 2) { n++\nm := 0\nwhile (m < 2) { m++\ns := s . n . m . " " } }\nprint(s)', expected: '11 12 21 22 ' },
+			{ code: 's := ""\nn := 0\nwhile (n < 3) { n++\nloop (2) { s := s . A_Index }\ns := s . "|" }\nprint(s)', expected: '12|12|12|' },
+			{ code: 'a := ["x", "y"]\ni := 0\nwhile (i < Count(a)) { print(a[i])\ni++ }', expected: 'x\ny' },
+			{ code: 'n := 0\nwhile (n < 3 && n != 2) { n++ }\nprint(n)', expected: '2' }, // any expression
+			{ code: 'n := 0\nWHILE (n < 2) { n++ }\nUntil (n > 4) { n++ }\nDo { n++ } While (n < 9)\nprint(n)', expected: '9' }, // keywords ignore case
+			{ code: 'while := 1\ndo := 2\nuntil := 3\nprint(while + do + until)', expected: '6' }, // and on their own they are names
+			{ code: 'whilst := 1\ndoing := 2\nuntilx := 3\nprint(whilst + doing + untilx)', expected: '6' },
+			{ code: 'n := 0\nwhile (n < 2) { n++ }, print(n)', expected: '2' },
+			
+			// labels
+			{ code: 's := ""\nouter: loop (3) { loop (3) { if (A_Index == 2) { continue outer }\ns := s . A_Index } }\nprint(s)', expected: '111' },
+			{ code: 's := ""\nouter: loop (3) { loop (3) { if (A_Index == 2) { break outer }\ns := s . A_Index } }\nprint(s)', expected: '1' },
+			{ code: 's := ""\nloop (3) { loop (3) { if (A_Index == 2) { break }\ns := s . A_Index } }\nprint(s)', expected: '111' }, // without a name it is the inner one
+			{ code: 's := ""\nouter: for (i of 1..3) { for (j of 1..3) { if (j == 2) { continue outer }\ns := s . i . j . " " } }\nprint(s)', expected: '11 21 31 ' },
+			{ code: 's := ""\nouter: for (i of 1..3) { for (j of 1..3) { if (i == 2) { break outer }\ns := s . i . j . " " } }\nprint(s)', expected: '11 12 13 ' },
+			{ code: 's := ""\nouter: for (i in [5, 6]) { for (j in [7, 8]) { if (j == 1) { continue outer }\ns := s . i . j } }\nprint(s)', expected: '0010' },
+			{ code: 'n := 0\nouter: while (n < 5) { n++\nwhile (1) { break outer } }\nprint(n)', expected: '1' },
+			{ code: 'n := 0\nouter: until (n > 5) { n++\ndo { continue outer } while (1) }\nprint(n)', expected: '6' },
+			{ code: 's := ""\nouter: do { s := s . "a"\nloop (2) { break outer } } while (1)\nprint(s)', expected: 'a' },
+			{ code: 's := ""\na: loop (2) { b: loop (2) { c: loop (2) { s := s . A_Index\nbreak a } } }\nprint(s)', expected: '1' }, // three deep
+			{ code: 's := ""\na: loop (2) { b: loop (2) { c: loop (2) { s := s . A_Index\ncontinue b } } }\nprint(s)', expected: '1111' },
+			{ code: 's := ""\nOUTER: loop (2) { loop (2) { s := s . "x"\nbreak outer } }\nprint(s)', expected: 'x' }, // names ignore case
+			{ code: 's := ""\nouter:\nloop (2) { s := s . A_Index }\nprint(s)', expected: '12' }, // the loop can be on the next line
+			{ code: 's := ""\nouter: loop (2) {\n\tloop (2) {\n\t\tif (A_Index == 2) { continue outer }\n\t\ts := s . A_Index\n\t}\n}\nprint(s)', expected: '11' },
+			{ code: 's := ""\nf() { loop (2) { break } }\nouter: loop (2) { f()\ns := s . A_Index }\nprint(s)', expected: '12' }, // a function's own loops are its own
+			{ code: 's := ""\nouter: loop (3) { if (A_Index == 2) { break outer }\ns := s . A_Index }\nprint(s)', expected: '1' }, // the loop it is in
+			{ code: 's := ""\nfirst: loop (2) { s := s . "a" }\nfirst: loop (2) { s := s . "b" }\nprint(s)', expected: 'aabb' }, // a name can be used again
+			{ code: 's := ""\nouter: loop (2) { outer: loop (2) { s := s . "x"\nbreak outer } }\nprint(s)', expected: 'xx' }, // the same name inside itself is the inner one
+			{ code: 's := ""\nloop (2) { if (1) { break } else { s := "no" } }\nprint(s . "|")', expected: '|' }, // else isn't taken for a name
+			{ code: 's := ""\nloop (2) { if (A_Index == 1) { continue }\nelse s := s . "b" }\nprint(s)', expected: 'b' },
+			{ code: 's := ""\nloop (2) { if (A_Index == 1) continue\nelse s := s . "b" }\nprint(s)', expected: 'bb' }, // pre-existing: a brace-less continue doesn't stop the statement after it from running
+			{ code: 'breakfast := 1\ncontinued := 2\nprint(breakfast + continued)', expected: '3' },
+			{ code: 'x := 1 ? 2 : 3\nprint(x)', expected: '2' }, // a colon in an expression isn't a label
+			{ code: 'o := {"a": 1}\nprint(o.a)', expected: '1' },
+			
+			// switch
+			{ code: 'switch (2) { case 1: print("one")\ncase 2: print("two")\ncase 3: print("three") }\nprint("end")', expected: 'two\nend' }, // no falling into the next one
+			{ code: 'switch ("B") { case "a": print(1)\ncase "b": print(2)\ndefault: print(3) }\nprint("end")', expected: '2\nend' }, // it compares with = so case doesn't count
+			{ code: 'switch ("1.0") { case 1: print("one")\ndefault: print("other") }\nprint("end")', expected: 'one\nend' }, // and numbers are numbers
+			{ code: 'switch (9) { case 1, 2: print("low")\ndefault: print("other") }\nprint("end")', expected: 'other\nend' },
+			{ code: 'switch (2) { case 1, 2: print("low")\ndefault: print("other") }\nprint("end")', expected: 'low\nend' }, // more than one value in a case
+			{ code: 'switch (3) { case 1, 2, 3, 4: print("in") }\nprint("end")', expected: 'in\nend' },
+			{ code: 'switch (7) { default: print("only") }\nprint("end")', expected: 'only\nend' }, // just a default
+			{ code: 'switch (7) { case 1: print(1) }\nprint("end")', expected: 'end' }, // no match and no default
+			{ code: 'switch (1) { }\nprint("empty")', expected: 'empty' },
+			{ code: 'switch (2) { default: print("d")\ncase 2: print("two") }\nprint("end")', expected: 'two\nend' }, // default is only for when nothing matched, wherever it is
+			{ code: 'switch (5) { default: print("d")\ncase 2: print("two") }\nprint("end")', expected: 'd\nend' },
+			{ code: 'switch (1) { case 1: print("a")\nfallthrough\ncase 2: print("b")\ncase 3: print("c") }\nprint("end")', expected: 'a\nb\nend' }, // fallthrough goes on into the next
+			{ code: 'switch (1) { case 1: print("a")\nfallthrough\ncase 2: print("b")\nfallthrough\ncase 3: print("c") }\nprint("end")', expected: 'a\nb\nc\nend' },
+			{ code: 'switch (1) { case 1: print("a")\nfallthrough\ndefault: print("d") }\nprint("end")', expected: 'a\nd\nend' },
+			{ code: 'switch (3) { case 3: print("c")\nfallthrough }\nprint("end")', expected: 'c\nend' }, // nothing after the last one to fall into
+			{ code: 'switch (1) { case 1:\nprint("a")\nbreak\nprint("b")\ncase 2: print("c") }\nprint("end")', expected: 'a\nend' }, // break leaves the switch
+			{ code: 'switch (1) { case 1: if (1) { print("a")\nbreak }\nprint("b") }\nprint("end")', expected: 'a\nend' },
+			{ code: 's := ""\nloop (4) { switch (A_Index) { case 2: continue\ncase 3: break\ndefault: s := s . A_Index }\ns := s . "." }\nprint(s)', expected: '1..4.' }, // continue inside the switch's brace-less case still skips the rest of the loop body // continue goes to the loop, break only the switch
+			{ code: 's := ""\nouter: loop (4) { switch (A_Index) { case 3: break outer\ndefault: s := s . A_Index } }\nprint(s)', expected: '12' }, // break with a label leaves that loop
+			{ code: 's := ""\nouter: loop (3) { switch (A_Index) { case 2: continue outer\ndefault: s := s . A_Index }\ns := s . "." }\nprint(s)', expected: '1.3.' },
+			{ code: 'f(x) { switch (x) { case 1: return "one"\ncase 2: return "two" }\nreturn "none" }\nprint(f(1) . f(2) . f(3))', expected: 'onetwonone' },
+			{ code: 'x := 5\nswitch (x) {\n\tcase 1 + 4:\n\t\tprint("five")\n\tcase 6:\n\t\tprint("six")\n}\nprint("end")', expected: 'five\nend' }, // case values are expressions
+			{ code: 'x := 5\ny := 5\nswitch (x) { case y: print("same") }\nprint("end")', expected: 'same\nend' },
+			{ code: 'switch ("a") {\n\t; a comment\n\tcase "a": ; another\n\t\tprint(1)\n\t\tprint(2)\n\t; and one more\n\tcase "b":\n\t\tprint(3)\n}\nprint("end")', expected: '1\n2\nend' },
+			{ code: 'switch (null) { case "": print("empty")\ndefault: print("d") }\nprint("end")', expected: 'empty\nend' }, // null = ""
+			{ code: 'switch (true) { case 1: print("one") }\nprint("end")', expected: 'one\nend' },
+			{ code: 'i := 0\nf() { i := i + 1\nreturn i }\nswitch (f()) { case 1: print("once") }\nprint(i)', expected: 'once\n0' }, // the subject is worked out once
+			{ code: 'switch (1) { case 1: switch (2) { case 2: print("inner") }\nprint("outer") }\nprint("end")', expected: 'inner\nouter\nend' },
+			{ code: 'switch (1) { case 1: switch (2) { case 2: print("a")\nbreak\nprint("b") }\nprint("c") }\nprint("end")', expected: 'a\nc\nend' }, // break is the inner switch's
+			{ code: 'switch (2) { case 1: x := 1\ncase 2: x := 2\ny := x * 2 }\nprint(x . y)', expected: '24' }, // more than one statement in a case
+			{ code: 'SWITCH ("a") { CASE "a": print(1)\nDEFAULT: print(2) }\nprint("end")', expected: '1\nend' },
+			{ code: 'switch := 4\ncase := 5\ndefault := 6\nfallthrough := 7\nprint(switch + case + default + fallthrough)', expected: '22' },
+			{ code: 'switch (1) {\n\tcase 1: print("x")\n}, print("y")', expected: 'x\ny' },
+			
+			// array items are worked out in order
+			{ code: 'a := []\nr := [Push(a, Upper("x")), Push(a, 2)]\nprint(Json(a))', expected: '["X",2]' }, // the first is slower, and used to finish last
+			{ code: 'r := [a := 1, b := a + 1, c := b + 1]\nprint(Json(r))', expected: '[1,2,3]' },
+			{ code: 'r := [[a := 1], [a + 1]]\nprint(Json(r))', expected: '[[1],[2]]' },
+			{ code: 'a := []\nr := [Push(a, 1), [Push(a, 2)], Push(a, 3)]\nprint(Json(a))', expected: '[1,2,3]' },
+			{ code: 'o := {"a": [x := 1, x + 1]}\nprint(Json(o))', expected: '{"a":[1,2]}' },
+			{ code: 'r := [1]\nprint(Json(r))', expected: '[1]' },
+			{ code: 'r := []\nprint(Count(r))', expected: '0' },
+			{ code: 'a := []\nf(x, y) { return x . y }\nr := [f(Push(a, 1), 2), f(Push(a, 3), 4)]\nprint(Json(a))', expected: '[1,3]' },
+			
 			// quotes inside strings, and single-quoted strings
 			{ code: "'say \"hi\"'", expected: 'say "hi"' },
 			{ code: '"it\'s"', expected: "it's" },
@@ -3271,8 +3760,12 @@ class ASTExecutor {
 			}
 			return false;
 		};
+		let counted = 0;
 		const assert = async (assertions, run = (code) => this.assert_code(code)) => {
 			for (const { code, expected } of assertions) {
+				if (counted++ % parts !== part) {
+					continue;
+				}
 				const result = await run(code);
 				const isSuccess = deepEqual(result, expected);
 				if (!isSuccess) {
@@ -3330,6 +3823,19 @@ class ASTExecutor {
 			{ code: 'x := <<END\nabc\nEND', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n      └─"abc"\n' }, // a heredoc is a template with just the text
 			{ code: 'x := <<END\nEND', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TEMPLATE\n' },
 			{ code: "x := {'a': `b`}", expected: "└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─OBJECT\n      └─'a'\n        └─TEMPLATE\n          └─\"b\"\n" },
+			{ code: 'for (x in arr) { y := 1 }', expected: '└─FOR_IN\n  ├─variable x\n  ├─iterable\n  │ └─VAR arr\n  └─statements\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR y\n      └─right\n        └─1\n' }, // for and ranges in the tree
+			{ code: 'for (x of 1..3) { break }', expected: '└─FOR_OF\n  ├─variable x\n  ├─iterable\n  │ └─RANGE\n  │   ├─1\n  │   └─3\n  └─statements\n    └─BREAK\n' },
+			{ code: 'for await (x of a) { }', expected: '└─FOR_OF await\n  ├─variable x\n  ├─iterable\n  │ └─VAR a\n  └─statements\n' },
+			{ code: 'x := 1..10..2', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─RANGE\n      ├─1\n      ├─10\n      └─2\n' },
+			{ code: 'x := 1..n', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─RANGE\n      ├─1\n      └─VAR n\n' },
+			{ code: 'while (x) { break }', expected: '└─WHILE\n  ├─condition\n  │ └─VAR x\n  └─statements\n    └─BREAK\n' }, // while, do, switch and labels in the tree
+			{ code: 'until (x) { break }', expected: '└─WHILE until\n  ├─condition\n  │ └─VAR x\n  └─statements\n    └─BREAK\n' },
+			{ code: 'do { x++ } while (x < 3)', expected: '└─DO_WHILE\n  ├─condition\n  │ └─LESS_THAN\n  │   ├─VAR x\n  │   └─3\n  └─statements\n    └─INC\n      ├─VAR x\n      └─1\n' },
+			{ code: 'do { x++ } until (x >= 3)', expected: '└─DO_WHILE until\n  ├─condition\n  │ └─GREATER_EQUAL\n  │   ├─VAR x\n  │   └─3\n  └─statements\n    └─INC\n      ├─VAR x\n      └─1\n' },
+			{ code: 'switch (x) { case 1: y := 1\ndefault: y := 2 }', expected: '└─SWITCH\n  ├─subject\n  │ └─VAR x\n  ├─case\n  │ ├─1\n  │ └─statements\n  │   └─ASSIGNMENT\n  │     ├─left\n  │     │ └─VAR y\n  │     └─right\n  │       └─1\n  └─default\n    └─statements\n      └─ASSIGNMENT\n        ├─left\n        │ └─VAR y\n        └─right\n          └─2\n' },
+			{ code: 'outer: loop (2) { break outer }', expected: '└─LOOP outer:\n  ├─count\n  │ └─2\n  └─statements\n    └─BREAK outer\n' },
+			{ code: 'break outer', expected: '└─BREAK outer\n' },
+			{ code: 'fallthrough', expected: '└─FALLTHROUGH\n' },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		// parse errors, what the parser says when a string never ends
 		await assert([
@@ -3384,6 +3890,11 @@ class ASTExecutor {
 			{ code: 'y := -x', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,SUB 1:6,LITERAL 1:6,VARIABLE 1:7' },
 			{ code: '#Strict()', expected: 'DIRECTIVE 1:1' },
 			{ code: 'x := (1 + 2)', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,ADD 1:7,LITERAL 1:7,LITERAL 1:11' },
+			{ code: 'for (x in a) {\n}', expected: 'FOR_IN 1:1,VARIABLE 1:11' },
+			{ code: 'x := 1..3', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,RANGE 1:6,LITERAL 1:6,LITERAL 1:9' },
+			{ code: 'while (x) {\n\tbreak\n}', expected: 'WHILE 1:1,VARIABLE 1:8,BREAK 2:2' },
+			{ code: 'do {\n\tx++\n} while (x)', expected: 'DO_WHILE 1:1,VARIABLE 3:10,INC 2:2,VARIABLE 2:2,LITERAL 2:2' },
+			{ code: 'switch (x) {\ncase 1:\n\ty := 1\n}', expected: 'SWITCH 1:1,VARIABLE 1:9,LITERAL 2:6,ASSIGNMENT 3:2,VARIABLE 3:2,LITERAL 3:7' },
 		], async (code) => {
 			const out = [];
 			spot((await this.make_ast(code)).statements, out);
@@ -3449,6 +3960,32 @@ class ASTExecutor {
 			{ code: 'x := Exec("y := 1\\nz := Count(true)")', expected: 'INTERNAL_Count: Expected a string or an array @2:6 [Exec@1] exec' },
 			{ code: 'Exec("x := \\"abc")', expected: 'Unterminated string @1:6 [Exec@1] exec' },
 			{ code: '#Strict()\nx := Exec("return nope")', expected: "Undefined variable 'nope' @1:8 [Exec@2] exec" },
+			// for and ranges
+			{ code: 'o := {"a": 1}\nfor (v of o) { }', expected: 'target is not iterable @2:1' },
+			{ code: 'for (x of 5) { }', expected: 'target is not iterable @1:1' },
+			{ code: 'for (x of null) { }', expected: 'target is not iterable @1:1' },
+			{ code: 'for await (x of 5) { }', expected: 'target is not async iterable @1:1' },
+			{ code: 'x := "a" . 1 .. 3', expected: 'A range needs numbers, from, to and a step that are finite @1:6' },
+			{ code: 'x := 1..2..0', expected: "A range can't step by 0 @1:6" },
+			{ code: 'x := 1..Infinity', expected: 'A range needs numbers, from, to and a step that are finite @1:6' },
+			{ code: 'x := 1..NaN', expected: 'A range needs numbers, from, to and a step that are finite @1:6' },
+			{ code: 'x := 1..null', expected: 'A range needs numbers, from, to and a step that are finite @1:6' },
+			{ code: 'x := 1.."a"', expected: 'A range needs numbers, from, to and a step that are finite @1:6' },
+			{ code: 'for (x of 1..3..0) { }', expected: "A range can't step by 0 @1:11" },
+			{ code: 'for (x in ) { }', expected: "Expected expression after 'in'" },
+			{ code: 'for (x of [1] { }', expected: "Expected ')' after for" },
+			{ code: 'for (x of [1]) {', expected: 'Failed to parse statement.' },
+			// while, do, switch, labels
+			{ code: 'loop (2) { break nothere }', expected: "No loop labelled 'nothere' to break or continue @1:12" },
+			{ code: 'loop (2) { continue nothere }', expected: "No loop labelled 'nothere' to break or continue @1:12" },
+			{ code: 'f() { break x }\nx: loop (2) { f() }', expected: "No loop labelled 'x' to break or continue @1:7 [f@2]" }, // a label from the caller's loop doesn't reach in
+			{ code: 'x: loop (2) { fallthrough }', expected: 'fallthrough only works inside a switch @1:15' },
+			{ code: 'fallthrough', expected: 'fallthrough only works inside a switch @1:1' },
+			{ code: 'n := 0\nwhile n < 3 { n++ }', expected: 'Failed to parse statement.' }, // needs the parens
+			{ code: 'do { x := 1 }', expected: 'Expected while or until after do' },
+			{ code: 'switch (1) { case 1 print(1) }', expected: "Expected ':' after case" },
+			{ code: 'switch 1 { }', expected: 'Failed to parse statement.' }, // needs the parens too
+			{ code: 'loop (2) { break outer }\nouter: loop (2) { }', expected: "No loop labelled 'outer' to break or continue @1:12" }, // a sibling's label, not an enclosing one
 			// runaway recursion stops at the limit with an error, not a crash
 			{ code: 'f(n) { return f(n + 1) }\nf(0)', expected: 'Recursion limit of 1000 calls reached, is f() calling itself forever? @1:15 [1000 frames]' },
 			{ code: 'f(n) { if (n <= 0) { return 0 }\nreturn 1 + f(n - 1) }\nprint(f(1000))', expected: 'Recursion limit of 1000 calls reached, is f() calling itself forever? @2:12 [1000 frames]' }, // 999 above was the deepest that fits
@@ -3566,6 +4103,98 @@ class ASTExecutor {
 			const text = shown.join('\n');
 			return [text.includes('boom'), text.includes('L1: x := 1')];
 		});
+		// requiring this file, what comes out of it, and running a string through it
+		const loaded = require(__filename);
+		await assert([
+			{ code: 'run', expected: true },
+			{ code: 'ASTExecutor', expected: true },
+			{ code: 'CoyoteParser', expected: true },
+		], async (code) => typeof loaded[code] === 'function' && loaded[code] === { run, ASTExecutor, CoyoteParser }[code]);
+		const ran = async (code, options) => {
+			const shown = [];
+			const realLog = console.log;
+			console.log = (...args) => shown.push(args.join(' '));
+			try {
+				await loaded.run(code, options);
+			} finally {
+				console.log = realLog;
+			}
+			return shown.join('\n');
+		};
+		await assert([
+			{ code: 'print(1 + 2)', expected: '3' },
+			{ code: 'f(n) { return n * 2 }\nprint(f(4))', expected: '8' },
+			{ code: 'class C { __init(v) { val := v }\nget() { return val } }\nc := new C(3)\nprint(c.get())', expected: '3' },
+			{ code: '#ArrayStartIndex(1)\nx := [5, 6]\nprint(x[1])', expected: '5' },
+			{ code: 'x := <<END\nhi\nEND\nprint(x)', expected: 'hi' },
+			{ code: 'print(A_platform === "' + process.platform + '")', expected: 'true' }, // the A_ vars are there
+			{ code: 'print(IsNum(A_pid))', expected: '1' },
+			{ code: 'x := 5', expected: '' }, // every run starts empty, nothing carries over
+			{ code: 'print(IsNull(x))', expected: '1' },
+			{ code: 'leak() { return 1 }\nprint(leak())', expected: '1' },
+			{ code: 'print(leak() . "|")', expected: '|' },
+			{ code: 'x := 1\nPrintScript()', expected: 'x := 1\nPrintScript()' }, // the source it was given
+			{ code: 'x := 1\nprint(A_scriptName . "|")', expected: '|' }, // no script
+			{ code: 'print(A_scriptDir)', expected: process.cwd() },
+		], async (code) => ran(code));
+		await assert([
+			{ code: 'x := 1\nPrintAST()', expected: true },
+			{ code: 'PrintAST()', expected: true },
+		], async (code) => (await ran(code)).includes('FUNCTION_CALL'));
+		await assert([
+			{ code: 'PrintScript()', expected: 'custom' },
+		], async (code) => ran(code, { source: 'custom' }));
+		// what run() hands back
+		await assert([
+			{ code: 'return 6 * 7', expected: 42 },
+			{ code: 'f() { return 3 }\nreturn f() + 1', expected: 4 },
+			{ code: 'x := 5', expected: 5 },
+			{ code: 'return', expected: undefined },
+			{ code: 'r := 1\nif (r) {\n\treturn 7\n}\nreturn 8', expected: 7 }, // a return from further in is still the value
+			{ code: 'return "a"\nreturn "b"', expected: 'a' },
+			{ code: '', expected: undefined },
+		], async (code) => loaded.run(code));
+		await assert([
+			{ code: '#Strict()\nx := missing', expected: "Undefined variable 'missing'" }, // errors come out to the caller
+			{ code: 'x := "abc', expected: 'Unterminated string' },
+			{ code: 'x := Count(true)', expected: 'INTERNAL_Count: Expected a string or an array' },
+			{ code: 'x := 1', expected: 'no error' },
+		], async (code) => { try { await loaded.run(code) } catch (err) { return err.summary } return 'no error' });
+		// no builtin is defined twice, the later one silently wins
+		await assert([
+			{ code: 'duplicates', expected: [] },
+			{ code: 'builtins', expected: true },
+		], async (code) => {
+			const names = [...fs.readFileSync(__filename, 'utf8').matchAll(/^\s*async (INTERNAL_\w+)\(/gm)].map(m => m[1].toLowerCase());
+			return code === 'builtins' ? names.length > 100 : names.filter((n, i) => names.indexOf(n) !== i);
+		});
+		// where the script is, the A_script vars used to point at this file
+		const hello = path.join(__dirname, 'nested', 'hello.yote');
+		await assert([
+			{ code: 'print(A_scriptName)', expected: 'hello.yote' },
+			{ code: 'print(A_scriptDir)', expected: path.join(__dirname, 'nested') },
+			{ code: 'print(A_Process.scriptFullPath)', expected: hello },
+			{ code: 'print(A_Process.scriptNameNoExt)', expected: 'hello' },
+			{ code: 'print(A_scriptName != "' + path.basename(__filename) + '")', expected: 'true' },
+		], async (code) => ran(code, { script: hello }));
+		await assert([
+			{ code: 'print(A_scriptName)\nprint(A_scriptDir)', expected: 'hello.yote\n' + path.join(process.cwd(), 'nested') }, // a relative one is made whole
+		], async (code) => ran(code, { script: path.join('nested', 'hello.yote') }));
+		// vars that work themselves out when they are read, so two reads can differ
+		await assert([
+			{ code: 'a := A_randomSeed\nb := A_randomSeed\nprint(a === b)', expected: 'false' },
+			{ code: 'r := A_randomSeed = A_randomSeed\nprint(r)', expected: 'false' },
+			{ code: 'a := A_currentTime\nSleep(15)\nb := A_currentTime\nprint(a === b)', expected: 'false' },
+			{ code: 'a := A_uptime\nSleep(15)\nb := A_uptime\nprint(b > a)', expected: 'true' },
+			{ code: 'print(A_randomSeed >= 0 && A_randomSeed < 1)', expected: 'true' },
+			{ code: 'print(StrLen(A_currentTime))\nprint(IsNum(A_currentTime))', expected: '24\n0' },
+			{ code: 'print(IsNum(A_uptime))\nprint(IsNum(A_freeMemory))', expected: '1\n1' },
+			{ code: 'print(A_freeMemory > 0)', expected: 'true' },
+			{ code: 'A_randomSeed := 5\nprint(A_randomSeed)\nprint(A_randomSeed)', expected: '5\n5' }, // write to one and it is a plain var
+			{ code: 'a := A_currentTime\nb := a\nSleep(15)\nprint(a === b)', expected: 'true' }, // a copy is a copy
+			{ code: 'x := `${A_randomSeed}` === `${A_randomSeed}`\nprint(x)', expected: 'false' },
+			{ code: 'f() { return A_randomSeed }\nprint(f() = f())', expected: 'false' }, // and inside a function
+		], async (code) => ran(code));
 		//     Format(N) {       
 		//     Print(S) {        
 		//     Clear(/) {        
@@ -3668,6 +4297,12 @@ class ASTExecutor {
 		}
 		const value = await found.solve();
 		return member === null ? value : this.step(value, member);
+	}
+	// see CoyoteVar.live
+	live(name, getter) {
+		const key = String(name).toLowerCase();
+		this.vars[key] = CoyoteVar.live(this, name, getter);
+		return this.vars[key];
 	}
 	// writes stay in this scope, reads walk up to the parents
 	set(name, value, member = null) {
@@ -3871,6 +4506,13 @@ class ASTExecutor {
             const CUNT = this.methods[DICK.toLowerCase()];
             if (CUNT && typeof this[CUNT] === 'function') {
                 const depth = this.frames.length;
+                const labels = this.labels.length;
+                if (ast.label) {
+                    this.labels.push(String(ast.label).toLowerCase());
+                }
+                if (ast.type === ItemType.SWITCH) {
+                    this.labels.push(" switch");
+                }
                 try {
                     const frame = this.callframe(ast);
                     if (frame) {
@@ -3884,6 +4526,7 @@ class ASTExecutor {
                     throw this.located(err, ast);
                 } finally {
                     this.frames.length = depth;
+                    this.labels.length = labels;
                 }
             } else {
                 this.print(chalk.red(`ERROR: Method "${DICK}" not found`));
@@ -3960,9 +4603,12 @@ class ASTExecutor {
 			this.settings.batchOps = this.numeric(values[0]) || null;
 		}
 	}
-async run(ast) {
+async run(ast, options = {}) {
 		//this.print(`${this.getFunctionName()}`);
 		this.print("running...");
+		this.ast = ast;
+		this.source = options.source || "";
+		this.script = options.script || "";
 		//console.log(ast.statements);
 
 
@@ -3997,21 +4643,21 @@ async run(ast) {
 		//this.set("A_envPath", process.env.PATH || "");
 		this.set("A_homeDir", require("os").homedir());
 		this.set("A_tempDir", require("os").tmpdir());
-		this.set("A_uptime", require("os").uptime());
+		this.live("A_uptime", () => require("os").uptime());
 		this.set("A_totalMemory", require("os").totalmem());
-		this.set("A_freeMemory", require("os").freemem());
+		this.live("A_freeMemory", () => require("os").freemem());
 		this.set("A_cpuCount", require("os").cpus().length);
 		this.set("A_cpuModel", require("os").cpus()[0]?.model || "unknown");
 		//this.set("A_networkInterfaces", JSON.stringify(require("os").networkInterfaces()));
-		this.set("A_currentTime", new Date().toISOString());
-		this.set("A_scriptName", require("path").basename(__filename));
-		this.set("A_scriptDir", __dirname);
+		this.live("A_currentTime", () => new Date().toISOString());
+		this.set("A_scriptName", require("path").basename(this.script));
+		this.set("A_scriptDir", this.script ? require("path").dirname(this.script) : process.cwd());
 		this.set("A_pid", process.pid);
 		this.set("A_execPath", process.execPath);
 		this.set("A_isTTY", process.stdout.isTTY);
 		this.set("A_locale", Intl.DateTimeFormat().resolvedOptions().locale || "unknown");
 		this.set("A_timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown");
-		this.set("A_randomSeed", Math.random());
+		this.live("A_randomSeed", () => Math.random());
 		this.set("A_isDebugMode", process.env.NODE_ENV === "development");
 		this.set("A_defaultEncoding", process.env.LANG || process.env.LC_ALL || "unknown");
 		this.set("A_isWindows", process.platform === "win32");
@@ -4151,8 +4797,8 @@ async run(ast) {
 
 		// ---- script and process ----
 		this.set("A_Process", {
-			scriptFullPath: __filename,
-			scriptNameNoExt: path.basename(__filename, path.extname(__filename)),
+			scriptFullPath: this.script,
+			scriptNameNoExt: path.basename(this.script, path.extname(this.script)),
 			workingDirName: path.basename(process.cwd()),
 			workingDirParent: path.dirname(process.cwd()),
 			driveRoot: path.parse(process.cwd()).root,
@@ -4399,6 +5045,7 @@ async run(ast) {
 		// ---- the interpreter itself ----
 		this.set("A_Interpreter", {
 			name: "coyote",
+			path: __filename,
 			yoteExt: ".yote",
 			arrayStartIndex: this.settings.arrayStartIndex,
 			batchLines: this.settings.batchLines ?? "",
@@ -4971,7 +5618,7 @@ async run(ast) {
 			for (const element of ast) {
 				results.push(await this.ASS(element));
 				// return kills the rest of the block and carries its value up. break and continue do the same up to the nearest loop
-				if (this.returning || this.breaking || this.continuing) {
+				if (this.returning || this.breaking || this.continuing || this.falling) {
 					break;
 				}
 			}
@@ -5166,6 +5813,100 @@ async run(ast) {
 		}
 		return { __class__: classDef.name, __instance__: instance };
 	}
+	// runs a loop body once, true if the loop should end. continue ends the pass, break ends the loop, both are spent here.
+	// return takes the loop with it. one that names another loop goes on through to it
+	async loopbody(ast) {
+		await this.execute_ast(ast.statements);
+		if (this.breaking || this.continuing) {
+			if (this.jumplabel && this.jumplabel !== String(ast.label || "").toLowerCase()) {
+				return true;
+			}
+			const broke = this.breaking;
+			this.breaking = this.continuing = false;
+			this.jumplabel = null;
+			return broke;
+		}
+		return this.returning;
+	}
+	// for (x in expr), the keys. array indexes and string positions count from #ArrayStartIndex
+	async for_in(ast) { // 31
+		const target = await this.execute_ast(ast.iterable);
+		const first = this.settings.arrayStartIndex;
+		let keys = [];
+		let read = (key) => target[key];
+		if (typeof target === "string" || Array.isArray(target)) {
+			keys = Array.from(target, (_, i) => String(i + first));
+			read = (key) => target[key - first];
+		} else if (target && typeof target === "object" && target.__instance__) {
+			keys = Object.keys(target.__instance__.vars);
+			read = (key) => target.__instance__.vars[key].raw();
+		} else if (target && typeof target === "object") {
+			// own keys of a coyote object, a js one gets a real for in and what it inherits
+			const proto = Object.getPrototypeOf(target);
+			if (proto === Object.prototype || proto === null) {
+				keys = Object.keys(target);
+			} else {
+				for (const key in target) {
+					keys.push(key);
+				}
+			}
+		}
+		let i = 1;
+		for (const key of keys) {
+			this.set(ast.variable, key);
+			this.set('A_Index', i++);
+			this.set('A_Key', key);
+			this.set('A_Val', read(key));
+			if (await this.loopbody(ast)) {
+				break;
+			}
+		}
+	}
+	// for (x of expr), the values of anything js can loop over. an array is live, same as node,
+	// so pushing to it as you go adds to the loop. loop (arr) is a snapshot
+	async for_of(ast) { // 44
+		const target = await this.execute_ast(ast.iterable);
+		let i = 1;
+		const pass = async (value) => {
+			this.set(ast.variable, value);
+			this.set('A_Index', i);
+			this.set('A_Key', i++ - 1 + this.settings.arrayStartIndex);
+			this.set('A_Val', value);
+			return await this.loopbody(ast);
+		};
+		if (ast.wait) {
+			for await (const value of target) {
+				if (await pass(value)) {
+					break;
+				}
+			}
+		} else {
+			for (const value of target) {
+				if (await pass(value)) {
+					break;
+				}
+			}
+		}
+	}
+	// 1..10 and 1..10..2, both ends are in it
+	async range(ast) { // 45
+		const start = this.numeric(await this.execute_ast(ast.start));
+		const end = this.numeric(await this.execute_ast(ast.end));
+		const step = ast.step ? this.numeric(await this.execute_ast(ast.step)) : 1;
+		if (start === null || end === null || step === null || !Number.isFinite(start + end + step)) {
+			throw new Error("A range needs numbers, from, to and a step that are finite");
+		}
+		if (step === 0) {
+			throw new Error("A range can't step by 0");
+		}
+		const out = [];
+		// a little slack, so 0..0.3..0.1 still gets to 0.3
+		const slack = Math.abs(step) * 1e-9;
+		for (let i = 0; step > 0 ? start + i * step <= end + slack : start + i * step >= end - slack; i++) {
+			out.push(start + i * step);
+		}
+		return out;
+	}
 	async loop(ast) {
 		//this.print(`${this.getFunctionName()}`);
 		let countResult = await this.execute_ast(ast.count);
@@ -5174,14 +5915,7 @@ async run(ast) {
 			const parsedInt = parseInt(countResult, 10);
 			if (!isNaN(parsedInt)) countResult = parsedInt;
 		}
-		const breakCheck = async () => {
-			await this.execute_ast(ast.statements);
-			// continue only ever ends the current pass and break ends the
-			// continue ends the pass, break ends the loop, both are spent here. return takes the loop with it
-			const broke = this.breaking;
-			this.breaking = this.continuing = false;
-			return this.returning || broke;
-		};
+		const breakCheck = () => this.loopbody(ast);
 		if (typeof countResult === "number") {
 			const step = countResult >= 1 ? 1 : -1;
 			for (let i = 1; step > 0 ? i <= countResult : i >= countResult; i += step) {
@@ -5207,13 +5941,74 @@ async run(ast) {
 		this.returned = value
 		return value
 	}
+	// a break or continue with a name has to be inside the loop with that name
+	jumpto(target) {
+		if (target && !this.labels.includes(String(target).toLowerCase())) {
+			throw new Error(`No loop labelled '${target}' to break or continue`);
+		}
+		this.jumplabel = target ? String(target).toLowerCase() : null;
+	}
 	async BREAK(ast){ // 32
 		//this.print(`${this.getFunctionName()}`);
+		this.jumpto(ast.target)
 		this.breaking = true
 	}
 	async CONTINUE(ast){ // 41
 		//this.print(`${this.getFunctionName()}`);
+		this.jumpto(ast.target)
 		this.continuing = true
+	}
+	async FALLTHROUGH(ast) { // 49
+		if (!this.labels.includes(" switch")) {
+			throw new Error("fallthrough only works inside a switch");
+		}
+		this.falling = true;
+	}
+	// while (cond) and until (cond), A_Index counts the passes
+	async while(ast) { // 46
+		let i = 1;
+		while (this.truth(await this.execute_ast(ast.condition)) !== ast.until) {
+			this.set('A_Index', i++);
+			if (await this.loopbody(ast)) {
+				break;
+			}
+		}
+	}
+	async do_while(ast) { // 47
+		let i = 1;
+		do {
+			this.set('A_Index', i++);
+			if (await this.loopbody(ast)) {
+				break;
+			}
+		} while (this.truth(await this.execute_ast(ast.condition)) !== ast.until);
+	}
+	// the first case with a value that = the subject, or default. it ends there unless it says fallthrough. break leaves the switch
+	async switch(ast) { // 48
+		const subject = await this.execute_ast(ast.subject);
+		let start = -1;
+		search: for (const [i, one] of ast.cases.entries()) {
+			for (const value of one.values) {
+				if (await this.equality({ left: { type: ItemType.VALUE, value: subject }, right: value })) {
+					start = i;
+					break search;
+				}
+			}
+		}
+		if (start < 0) {
+			start = ast.cases.findIndex(one => one.isdefault);
+		}
+		for (let i = Math.max(start, 0); start >= 0 && i < ast.cases.length; i++) {
+			await this.execute_ast(ast.cases[i].statements);
+			if (!this.falling) {
+				break;
+			}
+			this.falling = false;
+		}
+		this.falling = false;
+		if (this.breaking && !this.jumplabel) {
+			this.breaking = false;
+		}
 	}
 	async variable(ast) { //26
 		//this.print(`${this.getFunctionName()}`);
@@ -5272,7 +6067,11 @@ async run(ast) {
 	async array(ast) { // 28
 		//this.print(`${this.getFunctionName()}`);
 		if (Array.isArray(ast.items)) {
-			const result = await Promise.all(ast.items.map(item => this.execute_ast(item)));
+			// one at a time, so [a := 1, b := a + 1] and calls with side effects happen in order
+			const result = [];
+			for (const item of ast.items) {
+				result.push(await this.execute_ast(item));
+			}
 			return result;
 		}
 		return ast;
@@ -6486,6 +7285,15 @@ async INTERNAL_IsFloat(ast) {
 		}
 		return string.padEnd(width, char);
 	}
+	async INTERNAL_Entries(ast) {
+		let values = await this.execute_ast(ast);
+		let value = values[0];
+		// [key, value] pairs, so for ([k, v] of Entries(o)) can work when destructuring is there
+		if (typeof value === 'string' || Array.isArray(value)) {
+			return Array.from(value, (v, i) => [i + this.settings.arrayStartIndex, v]);
+		}
+		return (value !== null && typeof value === 'object' && !value.__instance__) ? Object.entries(value) : [];
+	}
 	async INTERNAL_Keys(ast) {
 		let values = await this.execute_ast(ast);
 		let value = this.unbox(values[0]);
@@ -6626,6 +7434,7 @@ async INTERNAL_IsFloat(ast) {
 	}
 	async INTERNAL_PrintScript(ast) {
 		// dumps the running script's source, to a file if given a path
+		let fileContent = this.root().source;
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		if (dest) {
@@ -6641,6 +7450,7 @@ async INTERNAL_IsFloat(ast) {
 	}
 	async INTERNAL_PrintAST(ast) {
 		// dumps the parsed tree and json, to a file if given a path
+		let r = this.root().ast || { statements: [] };
 		let values = await this.execute_ast(ast);
 		let dest = values.length ? String(values[0]) : null;
 		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
@@ -6813,66 +7623,9 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'Merge			'	,	'O1,O2'		,	'> [obj] O1 and O2 combined, O2 wins on key conflicts' ,
 			 '✓'  	,	'IsEmpty		'	,	'V'		,	'> [num] 1 or 0 if V (string/array/object) is empty' ,
 			 '✓'  	,	'IsNull		'	,	'V'		,	'> [num] 1 or 0 if V is null, undefined or a variable that was never set' ,
-			 '✓'  	,	'Default		'	,	'V,D'		,	'> [any] V, or D if V is null, undefined or a variable that was never set'
+			 '✓'  	,	'Default		'	,	'V,D'		,	'> [any] V, or D if V is null, undefined or a variable that was never set' ,
+			 '✓'  	,	'Entries		'	,	'V'		,	'> [arr] [key, value] pairs of an object, array or string'
 			])], 3));
-	}
-	async INTERNAL_PrintScript(ast) {
-		// dumps the running script's source, to a file if given a path
-		let values = await this.execute_ast(ast);
-		let dest = values.length ? String(values[0]) : null;
-		if (dest) {
-			try {
-				fs.writeFileSync(dest, fileContent, 'utf8');
-				return `Script written to: ${dest}`;
-			} catch (err) {
-				return `Error writing script: ${err.message}`;
-			}
-		}
-		console.log(fileContent);
-		return "";
-	}
-	async INTERNAL_PrintAST(ast) {
-		// dumps the parsed tree and json, to a file if given a path
-		let values = await this.execute_ast(ast);
-		let dest = values.length ? String(values[0]) : null;
-		let text = print_Coyote_tree(r) + "\n\n" + JSON.stringify(r, null, 2);
-		if (dest) {
-			try {
-				fs.writeFileSync(dest, text, 'utf8');
-				return `AST written to: ${dest}`;
-			} catch (err) {
-				return `Error writing AST: ${err.message}`;
-			}
-		}
-		console.log(print_Coyote_tree(r));
-		console.log(r);
-		return "";
-	}
-	async INTERNAL_DumpRAM(ast) {
-		// snapshot of node's memory and the variable stack, to a file if given a path
-		let values = await this.execute_ast(ast);
-		let dest = values.length ? String(values[0]) : null;
-		let mem = process.memoryUsage();
-		let toMB = n => (n / 1024 / 1024).toFixed(2) + ' MB';
-		let report = {
-			rss: toMB(mem.rss),
-			heapTotal: toMB(mem.heapTotal),
-			heapUsed: toMB(mem.heapUsed),
-			external: toMB(mem.external),
-			arrayBuffers: toMB(mem.arrayBuffers),
-			vars: this.dump()
-		};
-		let text = JSON.stringify(report, null, 2);
-		if (dest) {
-			try {
-				fs.writeFileSync(dest, text, 'utf8');
-				return `RAM dump written to: ${dest}`;
-			} catch (err) {
-				return `Error writing RAM dump: ${err.message}`;
-			}
-		}
-		console.log(text);
-		return "";
 	}
 	generateFuncs(arr) {
 		let numColumns = 4
@@ -7155,6 +7908,21 @@ drawBox(title, content, boxWidth, color) {
 	}
 }
 
+// runs a string of coyote and gives back what the script returned, or else what its last statement gave
+async function run(code, options = {}) {
+	const executor = new ASTExecutor(null, true);
+	const script = options.script ? path.resolve(options.script) : "";
+	const results = await executor.run(new CoyoteParser(code).parse(), { source: code, ...options, script });
+	return executor.returning ? executor.returned : results[results.length - 1];
+}
+module.exports = { ASTExecutor, CoyoteParser, ErrorHandler, run };
+
+if (!isMainThread) {
+	// a worker for its share of the startup assertions
+	new ASTExecutor(null, true).verifyInternalFunctions(workerData.part, workerData.parts).then(
+		() => parentPort.postMessage({ ok: true }),
+		(error) => parentPort.postMessage({ ok: false, message: String(error.message || error) }));
+} else if (require.main === module) {
 
 if (process.argv.length < 3) {
     console.error('Usage: node coyote.js <file_path>');
@@ -7181,3 +7949,4 @@ console.log(print_Coyote_tree(r));
 fs.writeFileSync('output.txt', JSON.stringify(r, null, 2));
 const executer = new ASTExecutor()
 executer.verified.then(() => executer.run(r))
+}
