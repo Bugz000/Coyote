@@ -1895,7 +1895,7 @@ function convert_statement(s) {
 		};
 	}
 	if (s.type === ItemType.INC) {
-		console.log(s)
+		//console.log(s)
 		return {
 			name: chalk.cyan(ItemType[s.type]),
 			children: [
