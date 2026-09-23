@@ -102,6 +102,10 @@ const KEYWORD_SWITCH = new RegexToken(/switch\b/i, 'Begins a switch statement');
 const KEYWORD_CASE = new RegexToken(/case\b/i, 'One or more values in a switch, `case 1, 2:`');
 const KEYWORD_DEFAULT = new RegexToken(/default\b/i, 'What a switch does when no case matched');
 const KEYWORD_FALLTHROUGH = new RegexToken(/fallthrough\b/i, 'Carries on into the next case of a switch');
+const KEYWORD_TRY = new RegexToken(/try\b/i, 'Begins a block that catches errors thrown inside it');
+const KEYWORD_CATCH = new RegexToken(/catch\b/i, 'Runs when the try block throws');
+const KEYWORD_FINALLY = new RegexToken(/finally\b/i, 'Always runs after a try, whether it threw or not');
+const KEYWORD_THROW = new RegexToken(/throw\b/i, 'Raises an error, catchable by an enclosing try');
 const KEYWORD_RETURN = new RegexToken(/return\b/i, 'Returns a value from a function');
 const KEYWORD_CLASS = new RegexToken(/class\b/i, 'Begins a class definition');
 const KEYWORD_NEW = new RegexToken(/new\b/i, 'Constructs a new instance of a class');
@@ -165,6 +169,8 @@ var ItemType;
 	ItemType[ItemType["DO_WHILE"] = 47] = "DO_WHILE";
 	ItemType[ItemType["SWITCH"] = 48] = "SWITCH";
 	ItemType[ItemType["FALLTHROUGH"] = 49] = "FALLTHROUGH";
+	ItemType[ItemType["TRY"] = 50] = "TRY";
+	ItemType[ItemType["THROW"] = 51] = "THROW";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -390,6 +396,8 @@ class CoyoteParser extends Parser {
 			.or(() => this.parse_statement_do())
 			.or(() => this.parse_statement_switch())
 			.or(() => this.parse_statement_fallthrough())
+			.or(() => this.parse_statement_try())
+			.or(() => this.parse_statement_throw())
 			.or(() => this.parse_statement_label())
 			.or(() => this.parse_statement_return())
 			.or(() => this.parse_statement_break())
@@ -806,6 +814,81 @@ class CoyoteParser extends Parser {
 		}
 		this.sync_to(lookahead_parser);
 		return this.found({type: ItemType.FALLTHROUGH});
+	}
+	// try { } catch (e) { } finally { }. catch's (e) is optional, and either catch or finally can stand alone
+	parse_statement_try() {
+		this.log('parse_statement_try');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_TRY).not_found()) {
+			return this.not_found();
+		}
+		lookahead_parser.scan(WHITESPACE);
+		// try on its own is still a name
+		if (lookahead_parser.input[lookahead_parser.position] !== '{') {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const statements = this.parse_block().or_else_throw(`Expected '{' after try`);
+		this.parse_eol();
+		let catchBlock = null;
+		const catchLook = this.copy();
+		if (catchLook.scan(KEYWORD_CATCH).found()) {
+			this.sync_to(catchLook);
+			this.scan(WHITESPACE);
+			let variable = null;
+			const parenLook = this.copy();
+			if (parenLook.scan(OPERATOR_LPAREN).found()) {
+				parenLook.scan(WHITESPACE);
+				const name = parenLook.scan(VARIABLE);
+				parenLook.scan(WHITESPACE);
+				parenLook.scan(OPERATOR_RPAREN).or_else_throw(`Expected ')' after catch variable`);
+				if (name.found()) {
+					variable = name.get();
+					this.sync_to(parenLook);
+				}
+			}
+			const statements = this.parse_block().or_else_throw(`Expected '{' after catch`);
+			catchBlock = { variable, statements };
+			this.parse_eol();
+		}
+		let finallyBlock = null;
+		const finallyLook = this.copy();
+		if (finallyLook.scan(KEYWORD_FINALLY).found()) {
+			this.sync_to(finallyLook);
+			finallyBlock = this.parse_block().or_else_throw(`Expected '{' after finally`);
+		}
+		if (!catchBlock && !finallyBlock) {
+			throw Object.assign(new Error(), {
+				summary: `Expected catch or finally after try`,
+				source: "parser",
+				position: this.position,
+				statement: this.print_current_position()[0],
+				loc: this.print_current_position()[1],
+			});
+		}
+		return this.found({
+			type: ItemType.TRY,
+			statements,
+			catchBlock,
+			finallyBlock
+		});
+	}
+	parse_statement_throw() {
+		this.log('parse_statement_throw');
+		const lookahead_parser = this.copy();
+		if (lookahead_parser.scan(KEYWORD_THROW).not_found()) {
+			return this.not_found();
+		}
+		// throw on its own is still a name
+		if (/^[ \t]*(:=|=|\.|\()/.test(lookahead_parser.input.slice(lookahead_parser.position))) {
+			return this.not_found();
+		}
+		this.sync_to(lookahead_parser);
+		const expression = this.parse_expression().or_else_throw(`Expected expression after throw`);
+		return this.found({
+			type: ItemType.THROW,
+			expression
+		});
 	}
 	// outer: loop (3) { break outer }, a name and a colon in front of a loop
 	parse_statement_label() {
@@ -1755,6 +1838,27 @@ function convert_statement(s) {
 			name: chalk.cyan(ItemType[s.type]),
 		};
 	}
+	if (s.type === ItemType.TRY) {
+		return {
+			name: chalk.cyan(ItemType[s.type]),
+			children: [{
+				name: chalk.gray('try'),
+				children: convert_statements(s.statements),
+			}].concat(s.catchBlock ? [{
+				name: chalk.gray('catch') + (s.catchBlock.variable ? ' ' + s.catchBlock.variable : ''),
+				children: convert_statements(s.catchBlock.statements),
+			}] : []).concat(s.finallyBlock ? [{
+				name: chalk.gray('finally'),
+				children: convert_statements(s.finallyBlock),
+			}] : []),
+		};
+	}
+	if (s.type === ItemType.THROW) {
+		return {
+			name: chalk.cyan(ItemType[s.type]),
+			children: [convert_expression(s.expression)]
+		};
+	}
 	if (s.type === ItemType.FUNCTION_DEFINITION) {
 		return {
 			name: chalk.cyan(ItemType[s.type]),
@@ -1791,7 +1895,7 @@ function convert_statement(s) {
 		};
 	}
 	if (s.type === ItemType.INC) {
-		//console.log(s)
+		console.log(s)
 		return {
 			name: chalk.cyan(ItemType[s.type]),
 			children: [
@@ -2088,6 +2192,7 @@ class ASTExecutor {
 		this.natives = parent ? parent.natives : {};
 		this.classes = parent ? parent.classes : {};
 		this.settings = parent ? parent.settings : { arrayStartIndex: 0, batchLines: null, batchOps: null, strict: false, maxDepth: 1000 };
+		this.onerrorhandler = parent ? parent.onerrorhandler : null;
 		this.frames = parent ? parent.frames : [];
 		// which loop a break or continue is heading for, and the labels of the loops it is inside
 		this.jumplabel = null;
@@ -3629,6 +3734,46 @@ class ASTExecutor {
 			{ code: 'switch := 4\ncase := 5\ndefault := 6\nfallthrough := 7\nprint(switch + case + default + fallthrough)', expected: '22' },
 			{ code: 'switch (1) {\n\tcase 1: print("x")\n}, print("y")', expected: 'x\ny' },
 			
+			// try / catch / finally / throw
+			{ code: 'x := 0\ntry { x := 1 } catch (e) { x := 2 }\nprint(x)', expected: '1' }, // try succeeds, catch never runs
+			{ code: 'x := 0\ntry { throw "bad" } catch (e) { x := e.message }\nprint(x)', expected: 'bad' },
+			{ code: 'x := 0\ntry { x := Count(true) } catch (e) { x := e.message }\nprint(x)', expected: 'INTERNAL_Count: Expected a string or an array' }, // a runtime error is catchable, not just an explicit throw
+			{ code: 'x := 0\ntry { throw "a" } catch { x := 1 }\nprint(x)', expected: '1' }, // catch with no (e) still catches
+			{ code: 'x := ""\ntry { x := x . "a" } finally { x := x . "fin" }\nprint(x)', expected: 'afin' }, // finally runs when nothing threw too
+			{ code: 'f() { try { return 1 } finally { print("cleanup") } }\nprint(f())', expected: 'cleanup\n1' }, // finally after return, the original return value survives
+			{ code: 'f() { try { return 1 } finally { return 2 } }\nprint(f())', expected: '2' }, // finally's own return wins
+			{ code: 'f() { try { throw "x" } finally { return "caught by finally" } }\nprint(f())', expected: 'caught by finally' }, // and beats a pending throw too
+			{ code: 'x := ""\nn := 0\nwhile (n < 3) { n++\ntry { if (n == 2) { continue }\nx := x . n } finally { x := x . "-" } }\nprint(x)', expected: '1--3-' }, // finally runs on the way through a continue
+			{ code: 'x := ""\nloop (5) { try { if (A_Index == 3) { break }\nx := x . A_Index } finally { x := x . "." } }\nprint(x)', expected: '1.2..' }, // and a break
+			{ code: 'x := ""\ntry { try { throw "inner" } catch (e) { x := "outer:" . e.message } } catch (e) { x := "unreached" }\nprint(x)', expected: 'outer:inner' }, // nested try, inner catch handles it
+			{ code: 'x := ""\ntry { try { throw "inner" } finally { x := x . "f1-" } } catch (e) { x := x . "caught:" . e.message }\nprint(x)', expected: 'f1-caught:inner' }, // a finally in between with no catch of its own
+			{ code: 'x := ""\ntry { try { throw "boom" } catch (e) { throw "wrapped:" . e.message } } catch (e) { x := e.message }\nprint(x)', expected: 'wrapped:boom' }, // rethrowing from a catch
+			{ code: 'g() { throw "from g" }\nf() { g() }\nx := ""\ntry { f() } catch (e) { x := e.message }\nprint(x)', expected: 'from g' }, // an error from deep in a call chain
+			{ code: 'x := 0\ntry { x := missing.y } catch (e) { x := 1 }\nprint(x)', expected: '' }, // a missing property is just "", not an error, so it never throws
+			{ code: 'x := 0\ntry { x := 1 / 0 } catch (e) { x := "never" }\nprint(x)', expected: 'Infinity' }, // dividing by zero isn't an error in coyote
+			{ code: 'x := 0\ntry { throw {"code": 404, "message": "not found"} } catch (e) { x := e.code . ":" . e.message }\nprint(x)', expected: '404:not found' }, // an object literal's own keys land on the caught error
+			{ code: 'x := 0\ntry { throw 5 } catch (e) { x := e.message }\nprint(x)', expected: '5' }, // non-string throws get stringified for .message
+			{ code: 'x := ""\ntry { throw null } catch (e) { x := e.message . "|" }\nprint(x)', expected: '|' },
+			{ code: 'x := ""\ntry { throw "x" } catch (e) { x := e.type }\nprint(x)', expected: 'Throw' },
+			{ code: 'x := ""\ntry { x := Count(true) } catch (e) { x := e.type }\nprint(x)', expected: 'Error' },
+			{ code: 'x := 0\nf() { g() }\ng() { throw "boom" }\ntry { f() } catch (e) { x := e.line }\nprint(IsNum(x))', expected: '1' }, // .line is a real number
+			{ code: 'x := 0\ntry { x := Count(true) } catch (e) { x := StrLen(e.stack) > 0 }\nprint(x)', expected: 'false' }, // no call chain here, so nothing to show
+			{ code: 'r := 0\nf() { g() }\ng() { throw "boom" }\ntry { f() } catch (e) { r := Contains(e.stack, "g") . Contains(e.stack, "f") }\nprint(r)', expected: '11' },
+			{ code: 'x := ""\ntry { x := "no throw" } catch (e) { x := "unreached" }\nprint(x)', expected: 'no throw' },
+			{ code: 'x := ""\nclass T { risky() { throw "class boom" } }\nt := new T()\ntry { t.risky() } catch (e) { x := e.message }\nprint(x)', expected: 'class boom' }, // a method can throw too
+			{ code: 'x := ""\ntry {\n\tx := "block"\n}\ncatch (e) {\n\tx := "never"\n}\nprint(x)', expected: 'block' }, // catch on its own line still attaches
+			{ code: 'try := 1\ncatch := 2\nfinally := 3\nthrow := 4\nprint(try + catch + finally + throw)', expected: '10' }, // the keywords are still names on their own
+			{ code: 'trying := 1\ncatchall := 2\nthrowaway := 3\nprint(trying + catchall + throwaway)', expected: '6' }, // and names that merely start with them
+			
+			// Assert
+			{ code: 'x := Assert(1)\nprint(x)', expected: '1' },
+			{ code: 'x := 0\ntry { Assert(0) } catch (e) { x := e.message }\nprint(x)', expected: 'Assertion failed' },
+			{ code: 'x := 0\ntry { Assert(1 == 2, "custom message") } catch (e) { x := e.message }\nprint(x)', expected: 'custom message' },
+			{ code: 'x := Assert(1, "unused since it passed")\nprint(x)', expected: '1' },
+			{ code: 'x := 0\ntry { Assert("") } catch (e) { x := e.message }\nprint(x)', expected: 'Assertion failed' }, // uses the truthiness table, same as if
+			{ code: 'x := 0\ntry { Assert("0") } catch (e) { x := e.message }\nprint(x)', expected: 'Assertion failed' },
+			{ code: 'x := Assert("a")\nprint(x)', expected: '1' },
+			
 			// array items are worked out in order
 			{ code: 'a := []\nr := [Push(a, Upper("x")), Push(a, 2)]\nprint(Json(a))', expected: '["X",2]' }, // the first is slower, and used to finish last
 			{ code: 'r := [a := 1, b := a + 1, c := b + 1]\nprint(Json(r))', expected: '[1,2,3]' },
@@ -3781,6 +3926,12 @@ class ASTExecutor {
 			}
 		};
 		await assert(assertions);
+		// finally can't swallow an unhandled throw, and a rethrow from a catch is still uncaught if nothing wraps it
+		await assert([
+			{ code: 'try { throw "a" } finally { print("cleanup") }', expected: 'a' },
+			{ code: 'try { throw "boom" } catch (e) { throw "wrapped:" . e.message }', expected: 'wrapped:boom' },
+			{ code: 'try { x := 1 } catch (e) { throw "never" }', expected: 'no error' },
+		], async (code) => { try { await this.assert_code(code) } catch (err) { return err.summary } return 'no error' });
 		// parser-level: what the tree printer makes of the source (colours stripped)
 		await assert([
 			{ code: 'loop (2) { break }', expected: '└─LOOP\n  ├─count\n  │ └─2\n  └─statements\n    └─BREAK\n' },
@@ -3838,6 +3989,11 @@ class ASTExecutor {
 			{ code: 'outer: loop (2) { break outer }', expected: '└─LOOP outer:\n  ├─count\n  │ └─2\n  └─statements\n    └─BREAK outer\n' },
 			{ code: 'break outer', expected: '└─BREAK outer\n' },
 			{ code: 'fallthrough', expected: '└─FALLTHROUGH\n' },
+			{ code: 'try { x := 1 } catch (e) { y := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  └─catch e\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR y\n      └─right\n        └─1\n' }, // try, catch, finally and throw in the tree
+			{ code: 'try { x := 1 } catch { y := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  └─catch\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR y\n      └─right\n        └─1\n' },
+			{ code: 'try { x := 1 } finally { y := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  └─finally\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR y\n      └─right\n        └─1\n' },
+			{ code: 'try { x := 1 } catch (e) { y := 1 } finally { z := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  ├─catch e\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR y\n  │   └─right\n  │     └─1\n  └─finally\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR z\n      └─right\n        └─1\n' },
+			{ code: 'throw "a"', expected: '└─THROW\n  └─"a"\n' },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		// parse errors, what the parser says when a string never ends
 		await assert([
@@ -3897,6 +4053,8 @@ class ASTExecutor {
 			{ code: 'while (x) {\n\tbreak\n}', expected: 'WHILE 1:1,VARIABLE 1:8,BREAK 2:2' },
 			{ code: 'do {\n\tx++\n} while (x)', expected: 'DO_WHILE 1:1,VARIABLE 3:10,INC 2:2,VARIABLE 2:2,LITERAL 2:2' },
 			{ code: 'switch (x) {\ncase 1:\n\ty := 1\n}', expected: 'SWITCH 1:1,VARIABLE 1:9,LITERAL 2:6,ASSIGNMENT 3:2,VARIABLE 3:2,LITERAL 3:7' },
+			{ code: 'try {\n\tx := 1\n} catch (e) {\n\ty := 1\n}', expected: 'TRY 1:1,ASSIGNMENT 2:2,VARIABLE 2:2,LITERAL 2:7,ASSIGNMENT 4:2,VARIABLE 4:2,LITERAL 4:7' },
+			{ code: 'throw "a"', expected: 'THROW 1:1,LITERAL 1:7' },
 		], async (code) => {
 			const out = [];
 			spot((await this.make_ast(code)).statements, out);
@@ -4139,6 +4297,14 @@ class ASTExecutor {
 			{ code: 'x := 1\nprint(A_scriptName . "|")', expected: '|' }, // no script
 			{ code: 'print(A_scriptDir)', expected: process.cwd() },
 		], async (code) => ran(code));
+		// OnError, only for what nothing in the script itself caught
+		await assert([
+			{ code: 'OnError("handler")\nhandler(e) { print("caught: " . e.message) }\nthrow "oops"', expected: 'caught: oops' },
+			{ code: 'handler(e) { print("got:" . e.message) }\nOnError("handler")\nx := Count(true)', expected: 'got:INTERNAL_Count: Expected a string or an array' }, // any uncaught error, not just an explicit throw
+			{ code: 'handler(e) { print("h:" . e.message) }\nOnError("handler")\ntry { throw "x" } catch (e) { print("local:" . e.message) }\nprint("end")', expected: 'local:x\nend' }, // a try in the script handles its own, OnError never fires
+			{ code: 'handler(e) { print("outer:" . e.message) }\nOnError("handler")\nf() { g() }\ng() { throw "deep" }\nf()', expected: 'outer:deep' },
+			{ code: 'OnError("nope")\nthrow "x"', expected: '' }, // registering a name that isn't a function doesn't itself throw
+		], async (code) => ran(code));
 		await assert([
 			{ code: 'x := 1\nPrintAST()', expected: true },
 			{ code: 'PrintAST()', expected: true },
@@ -4161,6 +4327,8 @@ class ASTExecutor {
 			{ code: 'x := "abc', expected: 'Unterminated string' },
 			{ code: 'x := Count(true)', expected: 'INTERNAL_Count: Expected a string or an array' },
 			{ code: 'x := 1', expected: 'no error' },
+			{ code: 'throw "unhandled"', expected: 'unhandled' }, // and still does when nothing registered an OnError
+			{ code: 'try { throw "x" } catch (e) { throw "wrapped:" . e.message }', expected: 'wrapped:x' },
 		], async (code) => { try { await loaded.run(code) } catch (err) { return err.summary } return 'no error' });
 		// no builtin is defined twice, the later one silently wins
 		await assert([
@@ -4538,6 +4706,24 @@ class ASTExecutor {
             this.print(ast);
         }
     }
+	// runs a user function by name with the given args, ignoring what it returns. OnError uses this
+	async callByName(name, args) {
+		const fn = this.functions[name];
+		if (!fn) {
+			return;
+		}
+		const inner = this.spawn();
+		if (fn.params) {
+			for (const [index, param] of fn.params.entries()) {
+				let val = args[index];
+				if (val === undefined && param.default_value !== null) {
+					val = await inner.execute_ast(param.default_value);
+				}
+				inner.set(param.name, val);
+			}
+		}
+		await inner.execute_ast(fn.statements);
+	}
 	// a call that runs coyote code, for the stack in an error. builtins don't get one, except Exec
 	callframe(ast) {
 		const where = { line: ast.line, col: ast.col, node: ast };
@@ -5607,7 +5793,16 @@ async run(ast, options = {}) {
 
 		this.returning = false;
 		this.breaking = this.continuing = false;
-		return await this.execute_ast(ast.statements);;
+		try {
+			return await this.execute_ast(ast.statements);
+		} catch (err) {
+			// an error nothing in the script caught, OnError() gets first refusal
+			if (this.onerrorhandler) {
+				await this.callByName(this.onerrorhandler, [this.wrapError(err)]);
+				return [];
+			}
+			throw err;
+		}
 	}
 
 
@@ -5965,6 +6160,58 @@ async run(ast, options = {}) {
 			throw new Error("fallthrough only works inside a switch");
 		}
 		this.falling = true;
+	}
+	// builds the object a catch block sees, message/line/stack/type plus whatever a thrown object itself carried
+	wrapError(err) {
+		// summary/message can legitimately be an empty string (throw null gives one), so this checks for undefined, not falsy
+		const base = {
+			message: err ? (err.summary !== undefined ? err.summary : (err.message !== undefined ? err.message : String(err))) : String(err),
+			line: (err && err.line !== undefined) ? err.line : 0,
+			stack: (err && err.frames && err.frames.length) ? err.frames.slice().reverse().map(f => `in ${f.name}${String(f.name).startsWith('new ') ? '' : '()'} called at ln ${f.line}`).join('\n') : "",
+			type: (err && (err.type || err.name)) || "Error",
+		};
+		// throw {"code": 5} lets the catch see e.code too, not just the fixed fields
+		return (err && err.coyoteValue !== undefined && err.coyoteValue !== null && typeof err.coyoteValue === 'object' && !Array.isArray(err.coyoteValue)) ? { ...base, ...err.coyoteValue } : base;
+	}
+	async TRY(ast) { // 50
+		let pending = null;
+		try {
+			await this.execute_ast(ast.statements);
+		} catch (err) {
+			if (ast.catchBlock) {
+				if (ast.catchBlock.variable) {
+					this.set(ast.catchBlock.variable, this.wrapError(err));
+				}
+				await this.execute_ast(ast.catchBlock.statements);
+			} else {
+				pending = err;
+			}
+		}
+		if (ast.finallyBlock) {
+			// finally runs even after a return/break/continue/throw from try or catch, and its own wins if it has one
+			const stash = { returning: this.returning, returned: this.returned, breaking: this.breaking, continuing: this.continuing };
+			const stashedPending = pending;
+			this.returning = this.breaking = this.continuing = false;
+			pending = null;
+			await this.execute_ast(ast.finallyBlock);
+			if (!this.returning && !this.breaking && !this.continuing) {
+				this.returning = stash.returning;
+				this.returned = stash.returned;
+				this.breaking = stash.breaking;
+				this.continuing = stash.continuing;
+				pending = stashedPending;
+			}
+		}
+		if (pending !== null) {
+			throw pending;
+		}
+	}
+	async THROW(ast) { // 51
+		const value = await this.execute_ast(ast.expression);
+		const err = new Error(this.text(value));
+		err.type = "Throw";
+		err.coyoteValue = value;
+		throw err;
 	}
 	// while (cond) and until (cond), A_Index counts the passes
 	async while(ast) { // 46
@@ -7287,6 +7534,19 @@ async INTERNAL_IsFloat(ast) {
 		}
 		return string.padEnd(width, char);
 	}
+	async INTERNAL_OnError(ast) {
+		// takes a function name, called with the caught error object when nothing else catches one
+		let values = await this.execute_ast(ast);
+		this.root().onerrorhandler = values[0] ? String(values[0]) : null;
+		return values[0];
+	}
+	async INTERNAL_Assert(ast) {
+		let values = await this.execute_ast(ast);
+		if (!this.truth(values[0])) {
+			throw new Error(values.length >= 2 ? this.text(values[1]) : "Assertion failed");
+		}
+		return 1;
+	}
 	async INTERNAL_Entries(ast) {
 		let values = await this.execute_ast(ast);
 		let value = values[0];
@@ -7626,7 +7886,9 @@ async INTERNAL_IsFloat(ast) {
 			 '✓'  	,	'IsEmpty		'	,	'V'		,	'> [num] 1 or 0 if V (string/array/object) is empty' ,
 			 '✓'  	,	'IsNull		'	,	'V'		,	'> [num] 1 or 0 if V is null, undefined or a variable that was never set' ,
 			 '✓'  	,	'Default		'	,	'V,D'		,	'> [any] V, or D if V is null, undefined or a variable that was never set' ,
-			 '✓'  	,	'Entries		'	,	'V'		,	'> [arr] [key, value] pairs of an object, array or string'
+			 '✓'  	,	'Entries		'	,	'V'		,	'> [arr] [key, value] pairs of an object, array or string' ,
+			 '✓'  	,	'OnError		'	,	'F'		,	'> [str] registers F (a function name) as the handler for an uncaught error' ,
+			 '✓'  	,	'Assert		'	,	'C [,M]'	,	'> [num] throws [M or a default message] if C is falsy, else 1'
 			])], 3));
 	}
 	generateFuncs(arr) {
