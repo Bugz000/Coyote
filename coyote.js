@@ -7226,6 +7226,18 @@ async INTERNAL_Rem(ast) {
 		}
 		return { ...a, ...b };
 	}
+
+	async INTERNAL_Set(ast) {
+		let values = await this.execute_ast(ast);
+		let obj = this.unbox(values[0]);
+		let key = String(values[1]);
+		let val = values[2];
+		if (typeof obj !== 'object' || obj === null) {
+			throw new Error("INTERNAL_Set: Expected an object as the first argument");
+		}
+		obj[key] = val;
+		return obj;
+	}
 	async INTERNAL_IsEmpty(ast) {
 		let values = await this.execute_ast(ast);
 		let value = values[0];
@@ -8107,9 +8119,13 @@ drawBox(title, content, boxWidth, color) {
 	}
   }
 	handleParserError(error) {
-	console.log(error)
-	//const ln = Number(this.uStrip(error.statement).replace(/^L(\d+):.*$/, '$1'));
-	const ln = parseInt(this.uStrip(error.statement).match(/^L(\d+):/)[1], 10);
+	const strippedStatement = this.uStrip(error.statement);
+	const match = strippedStatement.match(/^L(\d+):/);
+	if (!match) {
+		this.handleRuntimeError(error);
+		return;
+	}
+	const ln = parseInt(match[1], 10);
 	const pos = error.position
 	if (pos !== null) {
 		const context = this.getContextLines(pos);
