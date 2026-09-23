@@ -111,6 +111,21 @@ const KEYWORD_CLASS = new RegexToken(/class\b/i, 'Begins a class definition');
 const KEYWORD_NEW = new RegexToken(/new\b/i, 'Constructs a new instance of a class');
 const OPERATOR_RANGE = new StringToken('..', 'Range, `1..10` or `1..10..2` for every 2nd');
 const OPERATOR_HASH = new StringToken('#', 'Begins a top-of-script directive - #Name(args)');
+
+const OPERATOR_POW = new StringToken('**', 'Exponentiation');
+const OPERATOR_FLOOR_DIV = new StringToken('//', 'Floor division');
+const OPERATOR_NULLISH = new StringToken('??', 'Nullish coalescing');
+const OPERATOR_OPTIONAL_CHAIN = new StringToken('?.', 'Optional chaining');
+const OPERATOR_IN = new RegexToken(/in\b/i, 'Membership operator');
+const OPERATOR_IS = new RegexToken(/is\b/i, 'Type check operator');
+const OPERATOR_TYPEOF = new RegexToken(/typeof\b/i, 'Type of operator');
+const OPERATOR_MOD = new RegexToken(/mod\b/i, 'Modulo operator');
+
+const OPERATOR_ADD_ASSIGN = new StringToken('+=', 'Add and assign');
+const OPERATOR_SUB_ASSIGN = new StringToken('-=', 'Subtract and assign');
+const OPERATOR_MUL_ASSIGN = new StringToken('*=', 'Multiply and assign');
+const OPERATOR_DIV_ASSIGN = new StringToken('/=', 'Divide and assign');
+const OPERATOR_CONCAT_ASSIGN = new StringToken('.=', 'Concat and assign');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
 const NEWLINE = new RegexToken(/\r?\n/);
@@ -7238,6 +7253,14 @@ async INTERNAL_Rem(ast) {
 		obj[key] = val;
 		return obj;
 	}
+	async INTERNAL_Siz(ast) {
+		let values = await this.execute_ast(ast);
+		let value = values[0];
+		if (value === null || value === undefined) return 0;
+		if (Array.isArray(value)) return value.length;
+		if (typeof value === 'object') return Object.keys(value).length;
+		return String(value).length;
+	}
 	async INTERNAL_IsEmpty(ast) {
 		let values = await this.execute_ast(ast);
 		let value = values[0];
@@ -7313,6 +7336,11 @@ async INTERNAL_Invert(ast) {
 async INTERNAL_IsArray(ast) {
     let value = await this.execute_ast(ast);
     return Array.isArray(this.Core(value[0])) ? 1 : 0;
+}
+
+async INTERNAL_IsBoolean(ast) {
+    let value = await this.execute_ast(ast);
+    return typeof value[0] === 'boolean' ? 1 : 0;
 }
 
 async INTERNAL_IsObject(ast) {
@@ -7694,7 +7722,6 @@ async INTERNAL_IsFloat(ast) {
 		this.print("----- devs -----")
 		this.print("spoon")
 		this.print("bugz")
-		await 
 		this.print("----- alpha testers -----")
 		this.print("bugz")			
 	}
