@@ -113,7 +113,6 @@ const OPERATOR_RANGE = new StringToken('..', 'Range, `1..10` or `1..10..2` for e
 const OPERATOR_HASH = new StringToken('#', 'Begins a top-of-script directive - #Name(args)');
 
 const OPERATOR_POW = new StringToken('**', 'Exponentiation');
-const OPERATOR_FLOOR_DIV = new StringToken('//', 'Floor division');
 const OPERATOR_NULLISH = new StringToken('??', 'Nullish coalescing');
 const OPERATOR_OPTIONAL_CHAIN = new StringToken('?.', 'Optional chaining');
 const OPERATOR_IN = new RegexToken(/in\b/i, 'Membership operator');
@@ -126,6 +125,17 @@ const OPERATOR_SUB_ASSIGN = new StringToken('-=', 'Subtract and assign');
 const OPERATOR_MUL_ASSIGN = new StringToken('*=', 'Multiply and assign');
 const OPERATOR_DIV_ASSIGN = new StringToken('/=', 'Divide and assign');
 const OPERATOR_CONCAT_ASSIGN = new StringToken('.=', 'Concat and assign');
+const OPERATOR_MOD_ASSIGN = new StringToken('%=', 'Modulo and assign');
+const OPERATOR_POW_ASSIGN = new StringToken('**=', 'Exponentiate and assign');
+const OPERATOR_NULLISH_ASSIGN = new StringToken('??=', 'Assign only if currently null or undefined');
+const OPERATOR_OR_ASSIGN = new StringToken('||=', 'Assign only if currently falsy');
+const OPERATOR_AND_ASSIGN = new StringToken('&&=', 'Assign only if currently truthy');
+const OPERATOR_SHL_ASSIGN = new StringToken('<<=', 'Shift left and assign');
+const OPERATOR_SHR_ASSIGN = new StringToken('>>=', 'Shift right and assign');
+const OPERATOR_BITAND_ASSIGN = new StringToken('&=', 'Bitwise AND and assign');
+const OPERATOR_BITOR_ASSIGN = new StringToken('|=', 'Bitwise OR and assign');
+const OPERATOR_BITXOR_ASSIGN = new StringToken('^=', 'Bitwise XOR and assign');
+const KEYWORD_INSTANCEOF = new RegexToken(/instanceof\b/i, 'Same as is - checks the class of a value');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
 const NEWLINE = new RegexToken(/\r?\n/);
@@ -186,6 +196,14 @@ var ItemType;
 	ItemType[ItemType["FALLTHROUGH"] = 49] = "FALLTHROUGH";
 	ItemType[ItemType["TRY"] = 50] = "TRY";
 	ItemType[ItemType["THROW"] = 51] = "THROW";
+	ItemType[ItemType["POW"] = 52] = "POW";
+	ItemType[ItemType["MOD"] = 53] = "MOD";
+	ItemType[ItemType["NULLISH"] = 54] = "NULLISH";
+	ItemType[ItemType["IN"] = 55] = "IN";
+	ItemType[ItemType["IS"] = 56] = "IS";
+	ItemType[ItemType["TYPEOF"] = 57] = "TYPEOF";
+	ItemType[ItemType["COMPOUND_ASSIGN"] = 58] = "COMPOUND_ASSIGN";
+	ItemType[ItemType["CHAINED_COMPARE"] = 59] = "CHAINED_COMPARE";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -204,7 +222,12 @@ const BINARY_OPS = [
 	ItemType.ADD,
 	ItemType.SUB,
 	ItemType.MUL,
-	ItemType.DIV
+	ItemType.DIV,
+	ItemType.POW,
+	ItemType.MOD,
+	ItemType.NULLISH,
+	ItemType.IN,
+	ItemType.IS
 ];
 const EMPTY = '  ';
 const LINE = '│ ';
@@ -250,6 +273,15 @@ const BINARY_OP_PRECEDENCE = [
 	}, {
 		token: OPERATOR_LESS,
 		type: ItemType.LESS_THAN
+	}, {
+		token: OPERATOR_IN,
+		type: ItemType.IN
+	}, {
+		token: OPERATOR_IS,
+		type: ItemType.IS
+	}, {
+		token: KEYWORD_INSTANCEOF,
+		type: ItemType.IS
 	}, ],
 	[{
 		token: OPERATOR_CONCAT,
@@ -289,8 +321,36 @@ const BINARY_OP_PRECEDENCE = [
 	}, {
 		token: OPERATOR_DIV,
 		type: ItemType.DIV
+	}, {
+		token: OPERATOR_MOD,
+		type: ItemType.MOD
+	}, ],
+	[{
+		token: OPERATOR_POW,
+		type: ItemType.POW
 	}, ],
 ];
+// pure relational comparisons, for flattening a chain like 1 < x < 10
+const COMPARISON_TYPES = [ItemType.LESS_THAN, ItemType.GREATER_THAN, ItemType.LESS_EQUAL, ItemType.GREATER_EQUAL];
+// (a<b)<c parses left-associative by default, this turns a genuine chain of comparisons into terms+ops evaluated once each
+function flatten_comparison_chain(node) {
+	if (!COMPARISON_TYPES.includes(node.type)) {
+		return null;
+	}
+	const terms = [node.right];
+	const ops = [node.type];
+	let cur = node.left;
+	while (COMPARISON_TYPES.includes(cur.type)) {
+		terms.unshift(cur.right);
+		ops.unshift(cur.type);
+		cur = cur.left;
+	}
+	if (ops.length < 2) {
+		return null;
+	}
+	terms.unshift(cur);
+	return { terms, ops };
+}
 // matches at the end of the input
 class EofToken {
 	scan(haystack, position) {
@@ -458,9 +518,6 @@ class CoyoteParser extends Parser {
 						}
 						this.sync_to(lookahead_parser)
 						return this.found(cR(type, { type: ItemType.LITERAL, value: deltaValue }))
-					} else if (lookahead_parser.scan(OPERATOR_EQUAL).found()) {
-						this.sync_to(lookahead_parser)
-						return this.found(cR(type, this.parse_expression().get()))
 					}
 				}
 				return null
@@ -472,6 +529,56 @@ class CoyoteParser extends Parser {
 				this.not_found()
 			)
 		}
+	// see parse_expression_compound_assign below for += -= *= /= %= **= .= ??= ||= &&= <<= >>= &= |= ^=
+	// x OP= expr, on a variable or a member access, reuses the matching binary op's own executor
+	parse_expression_compound_assign() {
+		this.log("parse_expression_compound_assign")
+		const lookahead_parser = this.copy()
+		const varname = lookahead_parser.scan(VARIABLE)
+		if (varname.not_found()) {
+			return this.not_found()
+		}
+		let left = { type: ItemType.VARIABLE, name: varname.get() }
+		while (true) {
+			const member = lookahead_parser.parse_member_access_expression()
+			if (member.not_found()) {
+				break
+			}
+			left = { type: ItemType.MEMBER_ACCESS, value: left, member: member.get() }
+		}
+		lookahead_parser.scan(WHITESPACE)
+		const cAssign = (operator, op, extra) => {
+			if (lookahead_parser.scan(operator).not_found()) {
+				return null
+			}
+			this.sync_to(lookahead_parser)
+			return this.found({
+				type: ItemType.COMPOUND_ASSIGN,
+				left,
+				op,
+				extra: extra || {},
+				right: this.parse_expression().or_else_throw(`Expected expression after '${operator}'`)
+			})
+		}
+		return (
+			cAssign(OPERATOR_ADD_ASSIGN, ItemType.ADD) ||
+			cAssign(OPERATOR_SUB_ASSIGN, ItemType.SUB) ||
+			cAssign(OPERATOR_POW_ASSIGN, ItemType.POW) ||
+			cAssign(OPERATOR_MUL_ASSIGN, ItemType.MUL) ||
+			cAssign(OPERATOR_DIV_ASSIGN, ItemType.DIV) ||
+			cAssign(OPERATOR_MOD_ASSIGN, ItemType.MOD) ||
+			cAssign(OPERATOR_CONCAT_ASSIGN, ItemType.CONCAT) ||
+			cAssign(OPERATOR_NULLISH_ASSIGN, ItemType.NULLISH) ||
+			cAssign(OPERATOR_OR_ASSIGN, ItemType.OR) ||
+			cAssign(OPERATOR_AND_ASSIGN, ItemType.AND) ||
+			cAssign(OPERATOR_SHL_ASSIGN, ItemType.BIT_SHIFT, { direction: "LEFT" }) ||
+			cAssign(OPERATOR_SHR_ASSIGN, ItemType.BIT_SHIFT, { direction: "RIGHT" }) ||
+			cAssign(OPERATOR_BITAND_ASSIGN, ItemType.BITWISE_AND) ||
+			cAssign(OPERATOR_BITOR_ASSIGN, ItemType.BITWISE_OR) ||
+			cAssign(OPERATOR_BITXOR_ASSIGN, ItemType.BITWISE_XOR) ||
+			this.not_found()
+		)
+	}
 	// %name% or %(expr)% - reads the var, then reads the var named by its value
 	parse_expression_deref() {
 			this.log("parse_expression_deref")
@@ -1090,6 +1197,13 @@ class CoyoteParser extends Parser {
 			this.scan(WHITESPACE);
 			expr = this.found({ type: ItemType.RANGE, start: expr.get(), end, step });
 		}
+		// a ?? b, only the right side runs and only if the left is null or undefined
+		while (expr.found() && this.scan(OPERATOR_NULLISH).found()) {
+			this.scan(WHITESPACE);
+			const right = this.parse_binary_op(0).or_else_throw(`Expected expression after '??'`);
+			this.scan(WHITESPACE);
+			expr = this.found({ type: ItemType.NULLISH, left: expr.get(), right });
+		}
 		//console.log(expr)
 		// cond ? a : b sits below everything else
 		if (expr.found() && this.scan(OPERATOR_TERNARY_IF).found()) {
@@ -1169,6 +1283,12 @@ class CoyoteParser extends Parser {
 				break;
 			}
 		}
+		if (op_index === 3 && left.found()) {
+			const chain = flatten_comparison_chain(left.get());
+			if (chain) {
+				left = this.found({ type: ItemType.CHAINED_COMPARE, chain });
+			}
+		}
 		return left;
 	}
 	parse_operator_concat() {
@@ -1179,6 +1299,10 @@ class CoyoteParser extends Parser {
 			if (concat_op.found()) {
 				// a dot straight after a dot is a range
 				if (concat_op.get() === '.' && lookahead_parser.input[lookahead_parser.position] === '.') {
+					return left;
+				}
+				// a bare space in front of a word-operator is that operator's boundary, not concat
+				if (concat_op.get() !== '.' && (lookahead_parser.scan(OPERATOR_IN).found() || lookahead_parser.scan(OPERATOR_IS).found() || lookahead_parser.scan(KEYWORD_INSTANCEOF).found())) {
 					return left;
 				}
 				// a space on its own isn't necessarily concat, could be trailing whitespace
@@ -1227,6 +1351,15 @@ class CoyoteParser extends Parser {
 				right: expr.get()
 			});
 		}
+		if (this.scan(OPERATOR_TYPEOF).found()) {
+			this.scan(WHITESPACE);
+			const expr = this.parse_unary_expression();
+			expr.or_else_throw("Expected expression after 'typeof'");
+			return this.found({
+				type: ItemType.TYPEOF,
+				expression: expr.get()
+			});
+		}
 
 		return this.parse_expression_base();
 	}
@@ -1271,6 +1404,18 @@ class CoyoteParser extends Parser {
 		}
 		let expr = value.get();
 		while (true) {
+			const optLook = this.copy();
+			if (optLook.scan(OPERATOR_OPTIONAL_CHAIN).found()) {
+				this.sync_to(optLook);
+				if (this.input[this.position] === '[') {
+					const bracket = this.parse_member_access_expression().or_else_throw(`Expected ']' after '?.['`);
+					expr = { type: ItemType.MEMBER_ACCESS, value: expr, member: bracket, optional: true };
+				} else {
+					const name = this.scan(VARIABLE).or_else_throw(`Expected property name after '?.'`);
+					expr = { type: ItemType.MEMBER_ACCESS, value: expr, member: { type: ItemType.LITERAL, value: name }, optional: true };
+				}
+				continue;
+			}
 			const member = this.parse_member_access_expression();
 			if (member.found()) {
 				expr = {
@@ -1349,7 +1494,7 @@ class CoyoteParser extends Parser {
 			});
 		}
 		//if (this.loopmode == true) {
-			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_template()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_deref()).or(() => this.parse_expression_new()).or(() => this.parse_expression_variable())
+			return this.parse_expression_function_call().or(() => this.parse_expression_array()).or(() => this.parse_expression_object()).or(() => this.parse_expression_template()).or(() => this.parse_expression_incdec()).or(() => this.parse_expression_compound_assign()).or(() => this.parse_expression_deref()).or(() => this.parse_expression_new()).or(() => this.parse_expression_variable())
 		//} else {
 		//	console.log(this.loopmode)
 		//	return this.parse_expression_function_call().or(() => this.parse_expression_variable());
@@ -1504,7 +1649,7 @@ class CoyoteParser extends Parser {
     }
 	parse_member_access_expression() {
 		this.log("parse_member_access_expression");
-		if (this.input.startsWith('..', this.position)) {
+		if (this.input.startsWith('..', this.position) || this.input.startsWith('.=', this.position)) {
 			return this.not_found();
 		}
 		var lookahead_parser = this.copy();
@@ -2083,6 +2228,30 @@ function convert_expression(e) {
 		return {
 			name: chalk.cyanBright(ItemType[e.type]),
 			children: [convert_expression(e.start), convert_expression(e.end)].concat(e.step ? [convert_expression(e.step)] : []),
+		};
+	}
+	if (e.type === ItemType.TYPEOF) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: [convert_expression(e.expression)]
+		};
+	}
+	if (e.type === ItemType.CHAINED_COMPARE) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]),
+			children: e.chain.terms.map(convert_expression),
+		};
+	}
+	if (e.type === ItemType.COMPOUND_ASSIGN) {
+		return {
+			name: chalk.cyanBright(ItemType[e.type]) + ' ' + ItemType[e.op],
+			children: [{
+				name: chalk.gray('left'),
+				children: [convert_expression(e.left)]
+			}, {
+				name: chalk.gray('right'),
+				children: [convert_expression(e.right)]
+			}, ],
 		};
 	}
 	if (e.type === ItemType.TEMPLATE) {
@@ -3749,6 +3918,131 @@ class ASTExecutor {
 			{ code: 'switch := 4\ncase := 5\ndefault := 6\nfallthrough := 7\nprint(switch + case + default + fallthrough)', expected: '22' },
 			{ code: 'switch (1) {\n\tcase 1: print("x")\n}, print("y")', expected: 'x\ny' },
 			
+			// ** exponent, tightest of all, left-associative
+			{ code: 'x := 2 ** 3\nprint(x)', expected: '8' },
+			{ code: 'x := 2 ** 0\nprint(x)', expected: '1' },
+			{ code: 'x := 2 ** -1\nprint(x)', expected: '0.5' },
+			{ code: 'x := 2 ** 3 ** 2\nprint(x)', expected: '64' }, // left-assoc here: (2**3)**2, not the usual right-assoc
+			{ code: 'x := (2 ** 3) ** 2\nprint(x)', expected: '64' },
+			{ code: 'x := 2 + 3 ** 2\nprint(x)', expected: '11' }, // ** binds tighter than +
+			{ code: 'x := 2 * 3 ** 2\nprint(x)', expected: '18' }, // and tighter than *
+			{ code: 'x := 2\nx **= 3\nprint(x)', expected: '8' },
+			
+			// mod keyword, same tier as * and /
+			{ code: 'x := 7 mod 3\nprint(x)', expected: '1' },
+			{ code: 'x := -7 mod 3\nprint(x)', expected: '-1' }, // sign follows the dividend, same as Mod()
+			{ code: 'x := 7 mod -3\nprint(x)', expected: '1' },
+			{ code: 'x := 2 * 3 mod 4\nprint(x)', expected: '2' }, // left to right within the tier: (2*3) mod 4
+			{ code: 'x := 10 mod 3 + 1\nprint(x)', expected: '2' }, // mod binds tighter than +
+			{ code: 'mode := 5\nprint(mode)', expected: '5' }, // a name that starts with mod is still a name
+			{ code: 'modx := 5\nprint(modx)', expected: '5' },
+			{ code: 'x := 7\nx %= 3\nprint(x)', expected: '1' },
+			
+			// ?? nullish coalescing, only null/undefined trigger the right side
+			{ code: 'x := null ?? "d"\nprint(x)', expected: 'd' },
+			{ code: 'x := undefined ?? "d"\nprint(x)', expected: 'd' },
+			{ code: 'x := 0 ?? "d"\nprint(x)', expected: '0' }, // 0 is not nullish
+			{ code: 'x := "" ?? "d"\nprint(x)', expected: '' },
+			{ code: 'x := false ?? "d"\nprint(x)', expected: 'false' },
+			{ code: 'x := 5 ?? "d"\nprint(x)', expected: '5' },
+			{ code: 'x := null ?? null ?? "c"\nprint(x)', expected: 'c' }, // chains
+			{ code: 'i := 0\nx := 5 ?? i++\nprint(i)', expected: '0' }, // short-circuits, the right side never runs
+			{ code: 'i := 0\nx := null ?? i++\nprint(i)', expected: '1' }, // and does run it when it has to
+			{ code: 'x := null ?? 1 + 2\nprint(x)', expected: '3' }, // the right side is a full expression
+			{ code: 'x := null ?? 1 ? "y" : "n"\nprint(x)', expected: 'y' }, // ?? binds tighter than the ternary
+			{ code: 'x := null\nx ??= 5\nprint(x)', expected: '5' },
+			{ code: 'x := 1\nx ??= 5\nprint(x)', expected: '1' },
+			
+			// ?. optional chaining, short-circuits to nothing rather than throwing
+			{ code: 'a := null\nprint(a?.foo . "|")', expected: '|' },
+			{ code: 'a := null\nprint(a?.foo?.bar . "|")', expected: '|' }, // chains through more than one step
+			{ code: 'arr := [1, 2]\nprint(arr?.[0])', expected: '1' },
+			{ code: 'a := null\nprint(a?.[0] . "|")', expected: '|' },
+			{ code: 'class C { m() { return 5 } }\nc := new C()\nprint(c?.m())', expected: '5' },
+			{ code: 'c := null\nprint(c?.m() . "|")', expected: '|' }, // a method on null never gets called
+			{ code: 'o := null\nprint(o?.a.b . "|")', expected: '|' }, // short-circuits the whole rest of the chain
+			{ code: 'o := {"a": null}\nprint(o.a?.b . "|")', expected: '|' },
+			{ code: 'x := missing?.x . "|"\nprint(x)', expected: '|' }, // a variable that was never set
+			{ code: 'x := 5\ny := x?.toFixed(1) . "|"\nprint(y)', expected: '5.0|' }, // ?. behaves exactly like . when the base isn't null, real methods still run
+			{ code: 'a := {"x": null}\nb := a.x ?? "default"\nprint(b)', expected: 'default' }, // ?. and ?? work together
+			{ code: 'a := {"k": null}\nb := (a.missing ?? "default")\nprint(b)', expected: '' }, // a missing key reads as "", not null/undefined, so ?? doesn't catch it here
+			
+			// in - membership, keys for objects, values for arrays and strings
+			{ code: 'x := "a" in {"a": 1}\nprint(x)', expected: 'true' },
+			{ code: 'x := "z" in {"a": 1}\nprint(x)', expected: 'false' },
+			{ code: 'x := 2 in [1, 2, 3]\nprint(x)', expected: 'true' },
+			{ code: 'x := 9 in [1, 2, 3]\nprint(x)', expected: 'false' },
+			{ code: 'x := "ell" in "hello"\nprint(x)', expected: 'true' },
+			{ code: 'x := "xyz" in "hello"\nprint(x)', expected: 'false' },
+			{ code: 'x := 5 in 5\nprint(x)', expected: 'false' }, // not a container at all
+			{ code: 'a := "x"\nb := "y"\nprint(a b in "xy")', expected: 'true' }, // whitespace concat still binds tighter than in
+			{ code: 'x := "result: " . (5 in [1, 5, 9])\nprint(x)', expected: 'result: true' },
+			{ code: 'in := 7\nprint(in)', expected: '7' }, // a name on its own
+			
+			// is / instanceof - checks the class of an instance, the name is always a bareword like new
+			{ code: 'class Dog { }\nd := new Dog()\nprint(d is Dog)', expected: 'true' },
+			{ code: 'class Dog { }\nd := new Dog()\nprint(d is "Dog")', expected: 'true' }, // a string works too
+			{ code: 'class Dog { }\nclass Cat { }\nd := new Dog()\nprint(d is Cat)', expected: 'false' },
+			{ code: 'class Dog { }\nd := new Dog()\nprint(d instanceof Dog)', expected: 'true' }, // instanceof is the same operator
+			{ code: 'x := 5 is Dog\nprint(x)', expected: 'false' }, // not an instance of anything
+			{ code: 'x := null is Dog\nprint(x)', expected: 'false' },
+			{ code: 'x := "str" is Dog\nprint(x)', expected: 'false' },
+			{ code: 'is := 6\nprint(is)', expected: '6' },
+			{ code: 'instanceof := 8\nprint(instanceof)', expected: '8' },
+			
+			// typeof - a unary prefix, works with or without parens same as not
+			{ code: 'x := typeof 5\nprint(x)', expected: 'int' },
+			{ code: 'x := typeof(5)\nprint(x)', expected: 'int' },
+			{ code: 'x := typeof "a"\nprint(x)', expected: 'string' },
+			{ code: 'x := typeof true\nprint(x)', expected: 'boolean' },
+			{ code: 'x := typeof [1, 2]\nprint(x)', expected: 'array' },
+			{ code: 'x := typeof {"a": 1}\nprint(x)', expected: 'object' },
+			{ code: 'x := typeof null\nprint(x)', expected: 'null' },
+			{ code: 'x := typeof undefined\nprint(x)', expected: 'undefined' },
+			{ code: 'x := typeof 1.5\nprint(x)', expected: 'float' },
+			{ code: 'typeofx := 1\nprint(typeofx)', expected: '1' }, // a name that merely starts with it
+			
+			// chained comparison - each term runs once, ANDed pairwise, short-circuits like &&
+			{ code: 'x := 1 < 5 < 10\nprint(x)', expected: 'true' },
+			{ code: 'x := 10 < 5 < 20\nprint(x)', expected: 'false' },
+			{ code: 'x := 1 < 2 < 3 < 4\nprint(x)', expected: 'true' },
+			{ code: 'x := 1 < 2 < 1\nprint(x)', expected: 'false' }, // 1<2 true, 2<1 false
+			{ code: 'x := 5 > 3 > 1\nprint(x)', expected: 'true' },
+			{ code: 'x := 1 <= 2 <= 2\nprint(x)', expected: 'true' },
+			{ code: 'x := 2 <= 2 <= 1\nprint(x)', expected: 'false' },
+			{ code: 'calls := []\nf(n) { Push(calls, n)\nreturn n }\nprint(1 < f(5) < 10)\nprint(Count(calls))', expected: 'true\n1' }, // the middle term runs once, not twice
+			{ code: 'calls := []\nf(n) { Push(calls, n)\nreturn n }\nprint(10 < f(1) < 5)\nprint(Count(calls))', expected: 'false\n1' }, // and only once even when it short-circuits
+			{ code: 'x := 1 < 2\nprint(x)', expected: 'true' }, // a plain, non-chained comparison is unaffected
+			{ code: 'x := 3 < 2\nprint(x)', expected: 'false' },
+			{ code: 'x := 1\nif (0 < x < 10) { print("in range") } else { print("out") }', expected: 'in range' },
+			
+			// compound assignment, on plain variables and on members and array items
+			{ code: 'x := 5\nx += 3\nprint(x)', expected: '8' },
+			{ code: 'x := 5\nx -= 2\nprint(x)', expected: '3' },
+			{ code: 'x := 5\nx *= 2\nprint(x)', expected: '10' },
+			{ code: 'x := 10\nx /= 2\nprint(x)', expected: '5' },
+			{ code: 'x := "a"\nx .= "b"\nprint(x)', expected: 'ab' },
+			{ code: 'x := 1\nx <<= 2\nprint(x)', expected: '4' },
+			{ code: 'x := 8\nx >>= 2\nprint(x)', expected: '2' },
+			{ code: 'x := 6\nx &= 3\nprint(x)', expected: '2' },
+			{ code: 'x := 1\nx |= 2\nprint(x)', expected: '3' },
+			{ code: 'x := 5\nx ^= 1\nprint(x)', expected: '4' },
+			{ code: 'x := 0\nx ||= 5\nprint(x)', expected: '5' },
+			{ code: 'x := 1\nx ||= 5\nprint(x)', expected: '1' },
+			{ code: 'x := 1\nx &&= 5\nprint(x)', expected: '5' },
+			{ code: 'x := 0\nx &&= 5\nprint(x)', expected: '0' },
+			{ code: 'x := 5\nx += 1 + 1\nprint(x)', expected: '7' }, // the right side is a full expression
+			{ code: 'x := 5\nx *= 2 + 1\nprint(x)', expected: '15' },
+			{ code: 'x := 1\nx += NaN\nprint(x)', expected: 'NaN' }, // reuses add()'s own typed-value handling, not a naive parseInt
+			{ code: 'x := null\nx += 1\nprint(x)', expected: '1' },
+			{ code: 'o := {"a": 1}\no.a += 5\nprint(o.a)', expected: '6' }, // members
+			{ code: 'arr := [1, 2]\narr[0] += 10\nprint(arr[0])', expected: '11' }, // array items
+			{ code: 'o := {"a": {"b": 1}}\no.a.b *= 3\nprint(o.a.b)', expected: '3' }, // nested members
+			{ code: 'arr := [1, 2]\narr[0] .= "x"\nprint(arr[0])', expected: '1x' },
+			{ code: 'arr := [1, 2]\ni := 0\narr[i] += 5\nprint(arr[0])', expected: '6' }, // a computed index
+			{ code: 'x := 5\nx += x\nprint(x)', expected: '10' }, // reads before it writes
+			{ code: 'a := []\nf(v) { return Push(a, v) }\nx := 1\nx += Count(f(9))\nprint(x . "," . Json(a))', expected: '2,[9]' }, // the right side only runs once
+			
 			// try / catch / finally / throw
 			{ code: 'x := 0\ntry { x := 1 } catch (e) { x := 2 }\nprint(x)', expected: '1' }, // try succeeds, catch never runs
 			{ code: 'x := 0\ntry { throw "bad" } catch (e) { x := e.message }\nprint(x)', expected: 'bad' },
@@ -4053,7 +4347,7 @@ class ASTExecutor {
 			{ code: 'x := {"a": 1}', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,OBJECT 1:6,LITERAL 1:12' },
 			{ code: 'x := `a${b}`', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TEMPLATE 1:6,VARIABLE 1:10' },
 			{ code: 'x++', expected: 'INC 1:1,VARIABLE 1:1,LITERAL 1:1' }, // inline nodes take their parent's place
-			{ code: 'x .= "a"', expected: 'APP 1:1,VARIABLE 1:1,LITERAL 1:6' },
+			{ code: 'x .= "a"', expected: 'COMPOUND_ASSIGN 1:1,VARIABLE 1:1,LITERAL 1:6' }, // .= now shares the real concat() executor via compound_assign
 			{ code: 'y := %x%', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,DEREF 1:6,VARIABLE 1:6' },
 			{ code: 'y := new C(1)', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,NEW_INSTANCE 1:6,LITERAL 1:12' },
 			{ code: 'y := o.a.b', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,MEMBER_ACCESS 1:6,MEMBER_ACCESS 1:6,VARIABLE 1:6,LITERAL 1:7,LITERAL 1:9' },
@@ -5942,6 +6236,73 @@ async run(ast, options = {}) {
 		//this.print(`${this.getFunctionName()}`);
 		return (await this.execute_ast(ast.left)) & (await this.execute_ast(ast.right));
 	}
+	async POW(ast) { // 52
+		return Math.pow(await this.toFloat(await this.execute_ast(ast.left)), await this.toFloat(await this.execute_ast(ast.right)));
+	}
+	async MOD(ast) { // 53
+		// sign follows the dividend, same as Mod()
+		const a = this.numeric(await this.execute_ast(ast.left));
+		const b = this.numeric(await this.execute_ast(ast.right));
+		return a % b;
+	}
+	async NULLISH(ast) { // 54
+		const left = await this.execute_ast(ast.left);
+		return (left === null || left === undefined) ? await this.execute_ast(ast.right) : left;
+	}
+	async IN(ast) { // 55
+		const needle = await this.execute_ast(ast.left);
+		const haystack = await this.execute_ast(ast.right);
+		if (Array.isArray(haystack)) {
+			return haystack.some(v => String(v) === String(needle));
+		}
+		if (typeof haystack === 'string') {
+			return haystack.includes(String(needle));
+		}
+		if (haystack !== null && typeof haystack === 'object') {
+			return Object.prototype.hasOwnProperty.call(haystack, String(needle));
+		}
+		return false;
+	}
+	// x is ClassName / x instanceof ClassName - the class name is always a bareword, same as new ClassName()
+	async IS(ast) { // 56
+		const value = await this.execute_ast(ast.left);
+		const className = ast.right.name !== undefined ? ast.right.name : await this.execute_ast(ast.right);
+		return !!(value && typeof value === 'object' && value.__instance__ && String(value.__class__).toLowerCase() === String(className).toLowerCase());
+	}
+	async TYPEOF(ast) { // 57
+		return this.typeName(await this.execute_ast(ast.expression));
+	}
+	// any lvalue OP= expr, reuses whatever executor the operator already has
+	async compound_assign(ast) { // 58
+		const leftType = await this.detype(ast.left.type);
+		let current, setter;
+		if (leftType === "MEMBER_ACCESS") {
+			const target = await this.chainpath(ast.left);
+			current = await this.execute_ast(ast.left);
+			setter = (value) => { if (target.name !== null) { this.set(target.name, value, target.path); } };
+		} else {
+			current = await this.get(ast.left.name);
+			setter = (value) => this.set(ast.left.name, value);
+		}
+		const result = await this.execute_ast({ type: ast.op, left: { type: ItemType.VALUE, value: current }, right: ast.right, ...ast.extra });
+		setter(result);
+		return result;
+	}
+	// 1 < x < 10 - each term runs once, comparisons are ANDed pairwise and short-circuit like &&
+	async CHAINED_COMPARE(ast) { // 59
+		let prev = await this.execute_ast(ast.chain.terms[0]);
+		for (let i = 0; i < ast.chain.ops.length; i++) {
+			const next = await this.execute_ast(ast.chain.terms[i + 1]);
+			const [a, b] = this.pair(prev, next);
+			const type = ast.chain.ops[i];
+			const ok = type === ItemType.LESS_THAN ? a < b : type === ItemType.GREATER_THAN ? a > b : type === ItemType.LESS_EQUAL ? a <= b : a >= b;
+			if (!ok) {
+				return false;
+			}
+			prev = next;
+		}
+		return true;
+	}
 	async BITWISE_OR(ast) { // 18
 		//this.print(`${this.getFunctionName()}`);
 		return (await this.execute_ast(ast.left)) | (await this.execute_ast(ast.right));
@@ -6341,16 +6702,19 @@ async run(ast, options = {}) {
 		return ast;
 	}
 	async member_access(ast) { // 29
-		const member = await this.execute_ast(ast.member);
-		if (ast.value.name !== undefined) {
-			return await this.get(ast.value.name, member);
+		const base = ast.value.name !== undefined ? await this.get(ast.value.name) : await this.execute_ast(ast.value);
+		if (ast.optional && (base === null || base === undefined)) {
+			return undefined;
 		}
-		// x.a.b - work out the left side first, then step in
-		return this.step(await this.execute_ast(ast.value), member);
+		const member = await this.execute_ast(ast.member);
+		return this.step(base, member);
 	}
 	async method_call(ast) {
 		// re-evaluating would double any side effects, so it runs once
 		const target = await this.execute_ast(ast.func.value);
+		if (ast.func.optional && (target === null || target === undefined)) {
+			return undefined;
+		}
 		const methodName = await this.execute_ast(ast.func.member);
 		if (target && typeof target === 'object' && target.__instance__) {
 			const classDef = this.classes[String(target.__class__).toLowerCase()];
@@ -7506,12 +7870,12 @@ async INTERNAL_IsFloat(ast) {
 		let values = await this.execute_ast(ast);
 		return String(values[0]).toLowerCase();
 	}
-	async INTERNAL_Type(ast) {
-		let values = await this.execute_ast(ast);
-		if (values[0] === undefined) {
+	// int/float/string/boolean/array/object/null/undefined of a raw value, shared by Type() and typeof
+	typeName(raw) {
+		if (raw === undefined) {
 			return "undefined";
 		}
-		let value = this.unbox(values[0]);
+		let value = this.unbox(raw);
 		if (Array.isArray(value)) {
 			return "array";
 		}
@@ -7522,6 +7886,10 @@ async INTERNAL_IsFloat(ast) {
 			return Number.isInteger(value) ? "int" : "float";
 		}
 		return typeof value;
+	}
+	async INTERNAL_Type(ast) {
+		let values = await this.execute_ast(ast);
+		return this.typeName(values[0]);
 	}
 	async INTERNAL_Trim(ast) {
 		let values = await this.execute_ast(ast);
