@@ -1998,6 +1998,9 @@ function convert_statement(s) {
 			name: chalk.cyan(ItemType[s.type]),
 		};
 	}
+	if (s.type === ItemType.COMPOUND_ASSIGN) {
+		return convert_expression(s);
+	}
 	if (s.type === ItemType.TRY) {
 		return {
 			name: chalk.cyan(ItemType[s.type]),
@@ -4303,6 +4306,17 @@ class ASTExecutor {
 			{ code: 'try { x := 1 } finally { y := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  └─finally\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR y\n      └─right\n        └─1\n' },
 			{ code: 'try { x := 1 } catch (e) { y := 1 } finally { z := 1 }', expected: '└─TRY\n  ├─try\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR x\n  │   └─right\n  │     └─1\n  ├─catch e\n  │ └─ASSIGNMENT\n  │   ├─left\n  │   │ └─VAR y\n  │   └─right\n  │     └─1\n  └─finally\n    └─ASSIGNMENT\n      ├─left\n      │ └─VAR z\n      └─right\n        └─1\n' },
 			{ code: 'throw "a"', expected: '└─THROW\n  └─"a"\n' },
+			{ code: 'x := 2 ** 3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─POW\n      ├─2\n      └─3\n' }, // the new operators in the tree
+			{ code: 'x := 7 mod 3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─MOD\n      ├─7\n      └─3\n' },
+			{ code: 'x := a ?? b', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─NULLISH\n      ├─VAR a\n      └─VAR b\n' },
+			{ code: 'x := a in b', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─IN\n      ├─VAR a\n      └─VAR b\n' },
+			{ code: 'x := a is B', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─IS\n      ├─VAR a\n      └─VAR B\n' },
+			{ code: 'x := a instanceof B', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─IS\n      ├─VAR a\n      └─VAR B\n' }, // instanceof is the same node as is
+			{ code: 'x := typeof a', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─TYPEOF\n      └─VAR a\n' },
+			{ code: 'x := 1 < 2 < 3', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─CHAINED_COMPARE\n      ├─1\n      ├─2\n      └─3\n' },
+			{ code: 'x += 1', expected: '└─COMPOUND_ASSIGN ADD\n  ├─left\n  │ └─VAR x\n  └─right\n    └─1\n' }, // and compound assign, on a variable and on a member
+			{ code: 'o.a += 1', expected: '└─COMPOUND_ASSIGN ADD\n  ├─left\n  │ └─MEMBER_ACCESS\n  │   ├─value\n  │   │ └─VAR o\n  │   └─member\n  │     └─a\n  └─right\n    └─1\n' },
+			{ code: 'x <<= 2', expected: '└─COMPOUND_ASSIGN BIT_SHIFT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─2\n' },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		// parse errors, what the parser says when a string never ends
 		await assert([
@@ -4364,6 +4378,12 @@ class ASTExecutor {
 			{ code: 'switch (x) {\ncase 1:\n\ty := 1\n}', expected: 'SWITCH 1:1,VARIABLE 1:9,LITERAL 2:6,ASSIGNMENT 3:2,VARIABLE 3:2,LITERAL 3:7' },
 			{ code: 'try {\n\tx := 1\n} catch (e) {\n\ty := 1\n}', expected: 'TRY 1:1,ASSIGNMENT 2:2,VARIABLE 2:2,LITERAL 2:7,ASSIGNMENT 4:2,VARIABLE 4:2,LITERAL 4:7' },
 			{ code: 'throw "a"', expected: 'THROW 1:1,LITERAL 1:7' },
+			{ code: 'x := 2 ** 3', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,POW 1:6,LITERAL 1:6,LITERAL 1:11' },
+			{ code: 'x := a ?? b', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,NULLISH 1:6,VARIABLE 1:6,VARIABLE 1:11' },
+			{ code: 'x := a in b', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,IN 1:6,VARIABLE 1:6,VARIABLE 1:11' },
+			{ code: 'x := typeof a', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TYPEOF 1:6,VARIABLE 1:13' },
+			{ code: 'x := 1 < 2 < 3', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,CHAINED_COMPARE 1:6,LITERAL 1:6,LITERAL 1:10,LITERAL 1:14' },
+			{ code: 'x += 1', expected: 'COMPOUND_ASSIGN 1:1,VARIABLE 1:1,LITERAL 1:6' },
 		], async (code) => {
 			const out = [];
 			spot((await this.make_ast(code)).statements, out);
