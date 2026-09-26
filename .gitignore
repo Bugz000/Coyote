@@ -3,7 +3,6 @@ gendocs.bat
 /node_modules
 package-lock.json
 package.json
-run.bat
 outputwwww.txt
 block.txt
 output.txt
