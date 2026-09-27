@@ -3961,8 +3961,13 @@ class ASTExecutor {
 			{ code: 'a := null\nprint(a?.foo?.bar . "|")', expected: '|' }, // chains through more than one step
 			{ code: 'arr := [1, 2]\nprint(arr?.[0])', expected: '1' },
 			{ code: 'a := null\nprint(a?.[0] . "|")', expected: '|' },
+			{ code: 'a := null\ni := 0\nx := a?.[i++]\nprint(i)', expected: '0' }, // the index never runs, ?. short-circuits before touching it
 			{ code: 'class C { m() { return 5 } }\nc := new C()\nprint(c?.m())', expected: '5' },
 			{ code: 'c := null\nprint(c?.m() . "|")', expected: '|' }, // a method on null never gets called
+			{ code: '#Strict()\na := null\nx := a?.foo\nprint("ok")', expected: 'ok' }, // plain property access never throws under #Strict either way
+			{ code: '#Strict()\na := null\ny := a.foo\nprint("ok")', expected: 'ok' },
+			{ code: '#Strict()\nc := null\nx := c?.m()\nprint("ok")', expected: 'ok' }, // but a method CALL does, so this is where ?. actually earns its keep
+			{ code: '#Strict()\nc := null\ntry { x := c.m() } catch (e) { print(e.message) }', expected: "Undefined function 'm'" },
 			{ code: 'o := null\nprint(o?.a.b . "|")', expected: '|' }, // short-circuits the whole rest of the chain
 			{ code: 'o := {"a": null}\nprint(o.a?.b . "|")', expected: '|' },
 			{ code: 'x := missing?.x . "|"\nprint(x)', expected: '|' }, // a variable that was never set
