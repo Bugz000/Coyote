@@ -113,6 +113,7 @@ const OPERATOR_RANGE = new StringToken('..', 'Range, `1..10` or `1..10..2` for e
 const OPERATOR_HASH = new StringToken('#', 'Begins a top-of-script directive - #Name(args)');
 
 const OPERATOR_POW = new StringToken('**', 'Exponentiation');
+const OPERATOR_FLOOR_DIV = new StringToken('//', 'Floor division');
 const OPERATOR_NULLISH = new StringToken('??', 'Nullish coalescing');
 const OPERATOR_OPTIONAL_CHAIN = new StringToken('?.', 'Optional chaining');
 const OPERATOR_IN = new RegexToken(/in\b/i, 'Membership operator');
@@ -135,6 +136,7 @@ const OPERATOR_SHR_ASSIGN = new StringToken('>>=', 'Shift right and assign');
 const OPERATOR_BITAND_ASSIGN = new StringToken('&=', 'Bitwise AND and assign');
 const OPERATOR_BITOR_ASSIGN = new StringToken('|=', 'Bitwise OR and assign');
 const OPERATOR_BITXOR_ASSIGN = new StringToken('^=', 'Bitwise XOR and assign');
+const OPERATOR_FLOOR_DIV_ASSIGN = new StringToken('//=', 'Floor divide and assign');
 const KEYWORD_INSTANCEOF = new RegexToken(/instanceof\b/i, 'Same as is - checks the class of a value');
 const LINE_COMMENT = new RegexToken(/;[^\r\n]*/);
 const WHITESPACE = new RegexToken(/[ \t]+/);
@@ -204,6 +206,7 @@ var ItemType;
 	ItemType[ItemType["TYPEOF"] = 57] = "TYPEOF";
 	ItemType[ItemType["COMPOUND_ASSIGN"] = 58] = "COMPOUND_ASSIGN";
 	ItemType[ItemType["CHAINED_COMPARE"] = 59] = "CHAINED_COMPARE";
+	ItemType[ItemType["FLOOR_DIV"] = 60] = "FLOOR_DIV";
 })(ItemType || (ItemType = {}));
 const BINARY_OPS = [
 	ItemType.OR,
@@ -227,7 +230,8 @@ const BINARY_OPS = [
 	ItemType.MOD,
 	ItemType.NULLISH,
 	ItemType.IN,
-	ItemType.IS
+	ItemType.IS,
+	ItemType.FLOOR_DIV
 ];
 const EMPTY = '  ';
 const LINE = '│ ';
@@ -318,6 +322,9 @@ const BINARY_OP_PRECEDENCE = [
 	[{
 		token: OPERATOR_MUL,
 		type: ItemType.MUL
+	}, {
+		token: OPERATOR_FLOOR_DIV,
+		type: ItemType.FLOOR_DIV
 	}, {
 		token: OPERATOR_DIV,
 		type: ItemType.DIV
@@ -566,6 +573,7 @@ class CoyoteParser extends Parser {
 			cAssign(OPERATOR_POW_ASSIGN, ItemType.POW) ||
 			cAssign(OPERATOR_MUL_ASSIGN, ItemType.MUL) ||
 			cAssign(OPERATOR_DIV_ASSIGN, ItemType.DIV) ||
+			cAssign(OPERATOR_FLOOR_DIV_ASSIGN, ItemType.FLOOR_DIV) ||
 			cAssign(OPERATOR_MOD_ASSIGN, ItemType.MOD) ||
 			cAssign(OPERATOR_CONCAT_ASSIGN, ItemType.CONCAT) ||
 			cAssign(OPERATOR_NULLISH_ASSIGN, ItemType.NULLISH) ||
@@ -3931,6 +3939,19 @@ class ASTExecutor {
 			{ code: 'x := 2 * 3 ** 2\nprint(x)', expected: '18' }, // and tighter than *
 			{ code: 'x := 2\nx **= 3\nprint(x)', expected: '8' },
 			
+			// // floor division, same tier as * and /
+			{ code: 'x := 7 // 2\nprint(x)', expected: '3' },
+			{ code: 'x := 8 // 2\nprint(x)', expected: '4' }, // an exact division still floors, no different from /
+			{ code: 'x := -7 // 2\nprint(x)', expected: '-4' }, // floors toward negative infinity, not toward zero
+			{ code: 'x := 7.5 // 2\nprint(x)', expected: '3' },
+			{ code: 'x := 7 // -2\nprint(x)', expected: '-4' },
+			{ code: 'x := 8 / 2\nprint(x)', expected: '4' }, // plain / is unaffected
+			{ code: 'x := 7 / 2\nprint(x)', expected: '3.5' },
+			{ code: 'x := 2 * 6 // 4\nprint(x)', expected: '3' }, // same tier as * and /, left to right
+			{ code: 'x := 20 // 4 // 2\nprint(x)', expected: '2' },
+			{ code: 'x := 8\nx //= 3\nprint(x)', expected: '2' },
+			{ code: 'o := {"a": 7}\no.a //= 2\nprint(o.a)', expected: '3' },
+			
 			// mod keyword, same tier as * and /
 			{ code: 'x := 7 mod 3\nprint(x)', expected: '1' },
 			{ code: 'x := -7 mod 3\nprint(x)', expected: '-1' }, // sign follows the dividend, same as Mod()
@@ -4322,6 +4343,8 @@ class ASTExecutor {
 			{ code: 'x += 1', expected: '└─COMPOUND_ASSIGN ADD\n  ├─left\n  │ └─VAR x\n  └─right\n    └─1\n' }, // and compound assign, on a variable and on a member
 			{ code: 'o.a += 1', expected: '└─COMPOUND_ASSIGN ADD\n  ├─left\n  │ └─MEMBER_ACCESS\n  │   ├─value\n  │   │ └─VAR o\n  │   └─member\n  │     └─a\n  └─right\n    └─1\n' },
 			{ code: 'x <<= 2', expected: '└─COMPOUND_ASSIGN BIT_SHIFT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─2\n' },
+			{ code: 'x := 7 // 2', expected: '└─ASSIGNMENT\n  ├─left\n  │ └─VAR x\n  └─right\n    └─FLOOR_DIV\n      ├─7\n      └─2\n' },
+			{ code: 'x //= 2', expected: '└─COMPOUND_ASSIGN FLOOR_DIV\n  ├─left\n  │ └─VAR x\n  └─right\n    └─2\n' },
 		], async (code) => print_Coyote_tree(await this.make_ast(code)).replace(/\u001b\[[0-9;]*m/g, ''));
 		// parse errors, what the parser says when a string never ends
 		await assert([
@@ -4389,6 +4412,7 @@ class ASTExecutor {
 			{ code: 'x := typeof a', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,TYPEOF 1:6,VARIABLE 1:13' },
 			{ code: 'x := 1 < 2 < 3', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,CHAINED_COMPARE 1:6,LITERAL 1:6,LITERAL 1:10,LITERAL 1:14' },
 			{ code: 'x += 1', expected: 'COMPOUND_ASSIGN 1:1,VARIABLE 1:1,LITERAL 1:6' },
+			{ code: 'x := 7 // 2', expected: 'ASSIGNMENT 1:1,VARIABLE 1:1,FLOOR_DIV 1:6,LITERAL 1:6,LITERAL 1:11' },
 		], async (code) => {
 			const out = [];
 			spot((await this.make_ast(code)).statements, out);
@@ -6269,6 +6293,9 @@ async run(ast, options = {}) {
 		const a = this.numeric(await this.execute_ast(ast.left));
 		const b = this.numeric(await this.execute_ast(ast.right));
 		return a % b;
+	}
+	async FLOOR_DIV(ast) { // 60
+		return Math.floor(await this.toFloat(await this.execute_ast(ast.left)) / await this.toFloat(await this.execute_ast(ast.right)));
 	}
 	async NULLISH(ast) { // 54
 		const left = await this.execute_ast(ast.left);
